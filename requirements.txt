@@ -1,6 +1,6 @@
 streamlit>=1.36.0
 rdkit>=2023.9.5
-google-genai>=0.1.1
+groq>=0.9.0
 pdf2image>=1.17.0
 pypdf>=4.2.0
 pillow>=10.3.0
