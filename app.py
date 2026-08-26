@@ -10,12 +10,13 @@ from src.mechanism_engine import analyze_ros
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="AI Chemical Route & Mechanism Engine (Groq / Llama 3)",
+    page_title="AI Chemical Route & Mechanism Engine",
     page_icon="⚗️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("⚗️ Chemical Route & Mechanism Engine (Powered by Groq)")
+st.title("⚗️ Chemical Route & Mechanism Platform (Groq Engine)")
 st.caption("Automated reaction classification, 2D structures, electron-pushing mechanisms, and process scale-up parameters.")
 
 # --- Sidebar Configuration ---
@@ -25,52 +26,56 @@ with st.sidebar:
     api_key_input = st.text_input(
         "Groq API Key",
         type="password",
-        help="Enter your Groq API key (starts with gsk_...)"
-    )
-    
-    # Model Selector
-    selected_model = st.selectbox(
-        "Select Llama 3 Model",
-        options=[
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama-3.2-11b-vision-preview"
-        ],
-        index=0,
-        help="Use llama-3.3-70b-versatile for deep chemistry logic, or vision models for PDF schemes."
+        help="Paste your Groq API key starting with gsk_..."
     )
     
     raw_key = api_key_input or st.secrets.get("GROQ_API_KEY", "")
     resolved_api_key = raw_key.strip().strip('"').strip("'")
     
-    # Pre-Flight Connection Tester
+    # Pre-Flight Connection Tester & Dynamic Model Fetcher
     if st.button("🔌 Test Groq Connection", use_container_width=True):
         if not resolved_api_key:
             st.warning("⚠️ Please provide a Groq API key or define it in Secrets.")
         elif not resolved_api_key.startswith("gsk_"):
             st.error("❌ Invalid format: Groq API keys must start with 'gsk_'.")
         else:
-            with st.spinner("Testing Groq API connection..."):
+            with st.spinner("Connecting to Groq and fetching active models..."):
                 try:
                     test_client = Groq(api_key=resolved_api_key)
-                    ping = test_client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=[{"role": "user", "content": "Respond with 'OK'."}],
-                        max_tokens=5
-                    )
-                    if ping.choices[0].message.content:
-                        st.success("✅ Connected! Groq API key is active.")
+                    # Fetch active models dynamically to prevent 404 errors
+                    models_response = test_client.models.list()
+                    active_models = [
+                        m.id for m in models_response.data 
+                        if "whisper" not in m.id and "guard" not in m.id
+                    ]
+                    st.session_state["groq_available_models"] = active_models
+                    st.success(f"✅ Connected! Found {len(active_models)} available models.")
                 except Exception as err:
                     st.error(f"❌ Connection failed: {err}")
 
     st.markdown("---")
+    
+    # Dynamic or Fallback Model Selector
+    available_models = st.session_state.get(
+        "groq_available_models", 
+        ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
+    )
+    
+    selected_model = st.selectbox(
+        "Select Active Model",
+        options=available_models,
+        index=0,
+        help="Select any active text/multimodal model from your Groq account."
+    )
+
+    st.markdown("---")
     st.header("📁 Route Upload")
     uploaded_cdxml = st.file_uploader("Upload ChemDraw File (.cdxml)", type=["cdxml", "xml"])
-    uploaded_pdf = st.file_uploader("Upload Route PDF (.pdf)", type=["pdf"])
+    uploaded_pdf = st.file_uploader("Upload Synthesis Route (.pdf)", type=["pdf"])
 
 # Enforce API Key
 if not resolved_api_key:
-    st.info("👈 Please enter your Groq API key (starts with `gsk_`) in the sidebar to begin.")
+    st.info("👈 Enter your Groq API key (`gsk_...`) in the sidebar to begin.")
     st.stop()
 
 # Initialize Groq Client
@@ -100,7 +105,7 @@ if uploaded_cdxml or uploaded_pdf:
 
     # --- Run Analysis ---
     if st.button("🚀 Analyze Route & Elucidate Mechanisms", type="primary", use_container_width=True):
-        with st.spinner(f"Running synthesis analysis via {selected_model}..."):
+        with st.spinner(f"Elucidating mechanisms via {selected_model}..."):
             try:
                 results = analyze_ros(
                     client=client,
@@ -174,7 +179,6 @@ if "analysis_results" in st.session_state:
                     for inter in intermediates:
                         st.markdown(f"- **{inter.get('name', 'Intermediate')}:** `{inter.get('smiles_or_desc', '')}`")
 
-            # Process Parameters Expander
             proc_params = step.get("process_parameters", {})
             with st.expander(f"📋 Step {step_num} Process Chemistry & Scale-Up Controls", expanded=False):
                 p1, p2, p3 = st.columns(3)
