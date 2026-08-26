@@ -2,7 +2,7 @@ import io
 import json
 import streamlit as st
 from PIL import Image
-from google import genai
+from groq import Groq
 
 from src.parsers import extract_cdxml_data, extract_pdf_pages
 from src.chem_renderer import render_reaction_scheme, render_molecule_smiles
@@ -10,83 +10,71 @@ from src.mechanism_engine import analyze_ros
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="AI Chemical Route & Mechanism Engine",
+    page_title="AI Chemical Route & Mechanism Engine (Groq / Llama 3)",
     page_icon="⚗️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# --- Custom Styling ---
-st.markdown("""
-    <style>
-    .metric-card {
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        padding: 15px;
-        margin-bottom: 10px;
-    }
-    .stCodeBlock {
-        border-radius: 6px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- Header ---
-st.title("⚗️ Automated Chemical Route & Mechanism Engine")
-st.caption("Upload Route of Synthesis (CDXML / PDF) to elucidate named reactions, 2D structures, arrow-pushing mechanisms, and process scale-up parameters.")
+st.title("⚗️ Chemical Route & Mechanism Engine (Powered by Groq)")
+st.caption("Automated reaction classification, 2D structures, electron-pushing mechanisms, and process scale-up parameters.")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
-    st.header("⚙️ Configuration")
+    st.header("⚙️ Groq Configuration")
     
     api_key_input = st.text_input(
-        "Gemini API Key",
+        "Groq API Key",
         type="password",
-        help="Paste your Google AI Studio API key starting with AIzaSy..."
+        help="Enter your Groq API key (starts with gsk_...)"
     )
     
-    # Resolve and clean up API key
-    raw_key = api_key_input or st.secrets.get("GEMINI_API_KEY", "")
+    # Model Selector
+    selected_model = st.selectbox(
+        "Select Llama 3 Model",
+        options=[
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama-3.2-11b-vision-preview"
+        ],
+        index=0,
+        help="Use llama-3.3-70b-versatile for deep chemistry logic, or vision models for PDF schemes."
+    )
+    
+    raw_key = api_key_input or st.secrets.get("GROQ_API_KEY", "")
     resolved_api_key = raw_key.strip().strip('"').strip("'")
     
     # Pre-Flight Connection Tester
-    if st.button("🔌 Test API Connection", use_container_width=True):
+    if st.button("🔌 Test Groq Connection", use_container_width=True):
         if not resolved_api_key:
-            st.warning("⚠️ Please provide an API key or define it in Secrets.")
-        elif not resolved_api_key.startswith("AIzaSy"):
-            st.error("❌ Invalid format: Google AI Studio keys must start with 'AIzaSy'.")
+            st.warning("⚠️ Please provide a Groq API key or define it in Secrets.")
+        elif not resolved_api_key.startswith("gsk_"):
+            st.error("❌ Invalid format: Groq API keys must start with 'gsk_'.")
         else:
-            with st.spinner("Testing API connection..."):
+            with st.spinner("Testing Groq API connection..."):
                 try:
-                    test_client = genai.Client(api_key=resolved_api_key)
-                    ping_res = test_client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents="Respond with 'OK'."
+                    test_client = Groq(api_key=resolved_api_key)
+                    ping = test_client.chat.completions.create(
+                        model="llama-3.1-8b-instant",
+                        messages=[{"role": "user", "content": "Respond with 'OK'."}],
+                        max_tokens=5
                     )
-                    if ping_res.text:
-                        st.success("✅ Connection Successful! API key is active.")
+                    if ping.choices[0].message.content:
+                        st.success("✅ Connected! Groq API key is active.")
                 except Exception as err:
-                    err_text = str(err)
-                    if "400" in err_text or "API_KEY_INVALID" in err_text:
-                        st.error("❌ Invalid API Key: Key rejected by Google authentication.")
-                    elif "403" in err_text:
-                        st.error("❌ Access Denied: Verify Generative Language API is enabled.")
-                    else:
-                        st.error(f"❌ Connection failed: {err_text}")
+                    st.error(f"❌ Connection failed: {err}")
 
     st.markdown("---")
     st.header("📁 Route Upload")
     uploaded_cdxml = st.file_uploader("Upload ChemDraw File (.cdxml)", type=["cdxml", "xml"])
-    uploaded_pdf = st.file_uploader("Upload Synthesis Route (.pdf)", type=["pdf"])
+    uploaded_pdf = st.file_uploader("Upload Route PDF (.pdf)", type=["pdf"])
 
 # Enforce API Key
 if not resolved_api_key:
-    st.info("👈 Please enter your Gemini API key in the sidebar and verify connection to proceed.")
+    st.info("👈 Please enter your Groq API key (starts with `gsk_`) in the sidebar to begin.")
     st.stop()
 
-# Initialize Client
-client = genai.Client(api_key=resolved_api_key)
+# Initialize Groq Client
+client = Groq(api_key=resolved_api_key)
 
 # --- File Ingestion & Preview Section ---
 if uploaded_cdxml or uploaded_pdf:
@@ -112,12 +100,13 @@ if uploaded_cdxml or uploaded_pdf:
 
     # --- Run Analysis ---
     if st.button("🚀 Analyze Route & Elucidate Mechanisms", type="primary", use_container_width=True):
-        with st.spinner("Classifying named reactions, mapping 2D structures, and detailing electron flow..."):
+        with st.spinner(f"Running synthesis analysis via {selected_model}..."):
             try:
                 results = analyze_ros(
                     client=client,
                     text_context=parsed_text,
-                    images=pdf_images
+                    images=pdf_images,
+                    model_name=selected_model
                 )
                 st.session_state["analysis_results"] = results
             except Exception as ex:
@@ -144,7 +133,6 @@ if "analysis_results" in st.session_state:
                 st.markdown("#### 🔄 Reaction Scheme & Conditions")
                 st.markdown(f"**Reagents & Conditions:** `{step.get('reagents_solvents_conditions', 'N/A')}`")
                 
-                # Attempt 2D Reaction SMARTS rendering first
                 rxn_smarts = step.get("reaction_smarts", "")
                 rxn_rendered = False
                 
@@ -154,7 +142,6 @@ if "analysis_results" in st.session_state:
                         st.image(rxn_buf, caption=f"Step {step_num} 2D Transformation", use_container_width=True)
                         rxn_rendered = True
                 
-                # Fallback to individual Starting Material & Product rendering
                 if not rxn_rendered:
                     sm_col, prod_col = st.columns(2)
                     sm_smiles = step.get("starting_material_smiles", "")
@@ -178,13 +165,12 @@ if "analysis_results" in st.session_state:
                 mech_data = step.get("mechanism", {})
                 st.markdown(f"**Mechanism Class:** `{mech_data.get('mechanism_type', 'N/A')}`")
                 
-                arrow_steps = mech_data.get("arrow_pushing_description", [])
-                for flow_step in arrow_steps:
+                for flow_step in mech_data.get("arrow_pushing_description", []):
                     st.markdown(f"• {flow_step}")
                 
                 intermediates = mech_data.get("key_intermediates", [])
                 if intermediates:
-                    st.markdown("**Key Intermediates / Transition States:**")
+                    st.markdown("**Key Intermediates / Catalytic Species:**")
                     for inter in intermediates:
                         st.markdown(f"- **{inter.get('name', 'Intermediate')}:** `{inter.get('smiles_or_desc', '')}`")
 
@@ -198,7 +184,6 @@ if "analysis_results" in st.session_state:
 
             st.markdown("---")
 
-    # Download Report Option
     st.download_button(
         label="📥 Download Route Analysis (JSON)",
         data=json.dumps(results, indent=2),
@@ -206,6 +191,3 @@ if "analysis_results" in st.session_state:
         mime="application/json",
         use_container_width=True
     )
-else:
-    if not (uploaded_cdxml or uploaded_pdf):
-        st.info("👈 Upload a `.cdxml` or `.pdf` file in the sidebar to begin synthetic route analysis.")
