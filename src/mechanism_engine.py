@@ -1,23 +1,24 @@
 import io
 import json
 import base64
+import re
 from PIL import Image
 from groq import Groq
 
 def encode_image_to_base64(pil_image: Image.Image) -> str:
-    """Converts a PIL image to a base64 string for multimodal models."""
+    """Converts a PIL image to a base64 string for vision-capable models."""
     buffered = io.BytesIO()
     pil_image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def analyze_ros(client: Groq, text_context: str = None, images: list = None, model_name: str = "llama-3.3-70b-versatile") -> dict:
-    """Analyzes synthesis routes using Groq-hosted Llama 3 models."""
+    """Extracts chemical route synthesis, named reactions, and mechanism steps using Groq."""
     
     system_prompt = """
     You are an expert process chemist and reaction mechanism specialist.
     Analyze the provided Route of Synthesis (ROS). You MUST return a strictly valid JSON object.
     
-    Expected JSON Structure:
+    JSON Schema:
     {
       "overall_route_summary": "High-level summary of the synthetic strategy and transformation steps",
       "steps": [
@@ -49,26 +50,11 @@ def analyze_ros(client: Groq, text_context: str = None, images: list = None, mod
     }
     """
 
-    user_content = []
-    
-    # Add text or CDXML content
-    if text_context:
-        user_content.append({"type": "text", "text": f"Parsed Route / CDXML Data:\n{text_context}"})
-    else:
-        user_content.append({"type": "text", "text": "Analyze the synthesis route and generate the complete mechanism breakdown."})
-
-    # Multimodal image handling if vision model is selected
-    if images and "vision" in model_name:
-        for idx, img in enumerate(images[:2]):
-            b64_data = encode_image_to_base64(img)
-            user_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{b64_data}"}
-            })
+    user_text = f"Analyze the following chemical route data:\n{text_context if text_context else 'Extract and elucidate the reaction mechanism steps from the provided synthesis route.'}"
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content if ("vision" in model_name and images) else f"{system_prompt}\n\nChemical Data:\n{text_context}"}
+        {"role": "user", "content": user_text}
     ]
 
     response = client.chat.completions.create(
@@ -79,4 +65,13 @@ def analyze_ros(client: Groq, text_context: str = None, images: list = None, mod
         max_tokens=4096
     )
 
-    return json.loads(response.choices[0].message.content)
+    raw_output = response.choices[0].message.content
+    
+    # Safe JSON parse
+    try:
+        return json.loads(raw_output)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw_output, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise ValueError("Could not parse JSON output from Groq model.")
