@@ -4,10 +4,16 @@ from google import genai
 from google.genai import types
 
 @st.cache_data(persist="disk", show_spinner=False)
-def analyze_ros(_client: genai.Client, text_context: str = None, images: list = None) -> dict:
+def analyze_ros(
+    _client: genai.Client, 
+    text_context: str = None, 
+    _images: list = None, 
+    file_hash: str = ""
+) -> dict:
     """
     Cached Route of Synthesis analyzer using Gemini 3.6 Flash.
-    Extracts named reactions, arrow-pushing mechanisms, CPPs, and IPC specifications.
+    '_client' and '_images' are ignored during hashing via leading underscores.
+    'file_hash' and 'text_context' serve as the deterministic cache keys.
     """
     prompt = """
     You are an expert process organic chemist and reaction mechanism specialist.
@@ -71,9 +77,9 @@ def analyze_ros(_client: genai.Client, text_context: str = None, images: list = 
 
     contents = [prompt]
     if text_context:
-        contents.append(f"Parsed ChemDraw Context:\n{text_context}")
-    if images:
-        contents.extend(images[:3])
+        contents.append(f"Parsed Chemical Context:\n{text_context}")
+    if _images:
+        contents.extend(_images[:3])
 
     response = _client.models.generate_content(
         model="gemini-3.6-flash",
