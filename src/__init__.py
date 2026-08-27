@@ -1,1 +1,1 @@
-# Marks src directory as a Python package
+"""Chemical Route of Synthesis and Mechanism Engine Package."""
