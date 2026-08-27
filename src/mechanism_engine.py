@@ -6,7 +6,7 @@ from google.genai import types
 @st.cache_data(persist="disk", show_spinner=False)
 def analyze_ros(_client: genai.Client, text_context: str = None, images: list = None) -> dict:
     """
-    Cached Route of Synthesis analyzer using Gemini 2.5 Flash.
+    Cached Route of Synthesis analyzer using Gemini 3.6 Flash.
     Extracts named reactions, arrow-pushing mechanisms, CPPs, and IPC specifications.
     """
     prompt = """
@@ -76,7 +76,7 @@ def analyze_ros(_client: genai.Client, text_context: str = None, images: list = 
         contents.extend(images[:3])
 
     response = _client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json"
