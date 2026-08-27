@@ -54,11 +54,11 @@ with st.sidebar:
         elif not (resolved_api_key.startswith("AQ.") or resolved_api_key.startswith("AIza")):
             st.error("❌ Invalid format: Key must be a valid Google AI Studio key (starting with 'AQ.' or 'AIza').")
         else:
-            with st.spinner("Testing API connection..."):
+            with st.spinner("Testing API connection with Gemini 3.6 Flash..."):
                 try:
                     test_client = genai.Client(api_key=resolved_api_key)
                     ping_res = test_client.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.6-flash",
                         contents="Respond with 'OK'."
                     )
                     if ping_res.text:
@@ -69,6 +69,8 @@ with st.sidebar:
                         st.error("❌ Invalid API Key: Key rejected by Google authentication.")
                     elif "403" in err_text:
                         st.error("❌ Access Denied: Verify Generative Language API is enabled.")
+                    elif "404" in err_text:
+                        st.error("❌ Model Not Found: Please verify that gemini-3.6-flash is accessible.")
                     else:
                         st.error(f"❌ Connection failed: {err_text}")
 
