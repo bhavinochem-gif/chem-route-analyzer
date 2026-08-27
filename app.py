@@ -4,15 +4,24 @@ from datetime import datetime
 import streamlit as st
 from google import genai
 
-from src.db import init_db, save_route, get_route_by_hash, get_all_routes, get_route_by_id, delete_route_by_id
+from src.db import (
+    init_db,
+    save_route,
+    get_route_by_hash,
+    get_all_routes,
+    get_route_by_id,
+    delete_route_by_id
+)
 from src.parsers import extract_cdxml_data, extract_pdf_pages
 from src.chem_renderer import render_reaction_scheme, render_molecule_smiles
 from src.mechanism_engine import analyze_ros
 from src.exporter import generate_routes_excel
 from src.pdf_generator import build_pdf_report
 
+# Initialize persistent SQLite storage
 init_db()
 
+# --- Page Configuration ---
 st.set_page_config(
     page_title="AI Chemical Route & Mechanism Engine",
     page_icon="⚗️",
@@ -20,8 +29,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- Header ---
 st.title("⚗️ Chemical Route & Reaction Mechanism Platform")
-st.caption("Upload ChemDraw (.cdxml) or synthesis route PDFs to automatically generate named reactions, 2D structures, arrow-pushing mechanisms, and process scale-up parameters.")
+st.caption("Upload ChemDraw (.cdxml) or synthesis route PDFs to automatically elucidate named reactions, 2D chemical structures, electron-pushing mechanisms, and process scale-up parameters.")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
@@ -30,17 +40,19 @@ with st.sidebar:
     api_key_input = st.text_input(
         "Gemini API Key",
         type="password",
-        help="Paste your Google AI Studio API key starting with AIzaSy..."
+        help="Paste your Google AI Studio API key (supports keys starting with 'AQ.' or 'AIza...')"
     )
     
+    # Resolve API Key from sidebar or Streamlit secrets
     raw_key = api_key_input or st.secrets.get("GEMINI_API_KEY", "")
     resolved_api_key = raw_key.strip().strip('"').strip("'")
     
+    # Pre-Flight Connection Tester
     if st.button("🔌 Test API Connection", use_container_width=True):
         if not resolved_api_key:
             st.warning("⚠️ Please provide an API key or define it in Secrets.")
-        elif not resolved_api_key.startswith("AIzaSy"):
-            st.error("❌ Invalid format: Google AI Studio keys must start with 'AIzaSy'.")
+        elif not (resolved_api_key.startswith("AQ.") or resolved_api_key.startswith("AIza")):
+            st.error("❌ Invalid format: Key must be a valid Google AI Studio key (starting with 'AQ.' or 'AIza').")
         else:
             with st.spinner("Testing API connection..."):
                 try:
@@ -50,7 +62,7 @@ with st.sidebar:
                         contents="Respond with 'OK'."
                     )
                     if ping_res.text:
-                        st.success("✅ Connection Successful! API key is active.")
+                        st.success("✅ Connection Successful! Gemini API key is active.")
                 except Exception as err:
                     err_text = str(err)
                     if "400" in err_text or "API_KEY_INVALID" in err_text:
@@ -75,8 +87,14 @@ with st.sidebar:
     
     saved_routes = get_all_routes()
     if saved_routes:
-        route_options = {f"#{r['id']} | {r['file_name']} ({r['total_steps']} steps)": r['id'] for r in saved_routes}
-        selected_label = st.selectbox("Load from Database:", options=["-- Select Saved Route --"] + list(route_options.keys()))
+        route_options = {
+            f"#{r['id']} | {r['file_name']} ({r['total_steps']} steps)": r['id'] 
+            for r in saved_routes
+        }
+        selected_label = st.selectbox(
+            "Load from Database:", 
+            options=["-- Select Saved Route --"] + list(route_options.keys())
+        )
         
         if selected_label != "-- Select Saved Route --":
             selected_id = route_options[selected_label]
@@ -108,7 +126,7 @@ with st.sidebar:
     uploaded_cdxml = st.file_uploader("Upload ChemDraw (.cdxml)", type=["cdxml", "xml"])
     uploaded_pdf = st.file_uploader("Upload Route (.pdf)", type=["pdf"])
 
-# --- Main Processing Section ---
+# --- Main Route Processing Section ---
 active_file = uploaded_cdxml or uploaded_pdf
 
 if active_file:
@@ -134,15 +152,16 @@ if active_file:
             if pdf_images:
                 st.image(pdf_images[0], caption="Route Scheme (Page 1)", use_container_width=True)
 
-    # Check for existing database analysis
+    # Check for existing database analysis by SHA-256 fingerprint
     existing_entry = get_route_by_hash(file_hash)
     if existing_entry and "analysis_results" not in st.session_state:
-        st.info("💡 Existing analysis found in database. Click below to load immediately without using API tokens.")
+        st.info("💡 Existing analysis found in database for this exact file. Load immediately without using API tokens.")
         if st.button("⚡ Fast Load from Database (0 Tokens)", type="secondary"):
             st.session_state["analysis_results"] = existing_entry
             st.session_state["active_file_name"] = active_file.name
             st.rerun()
 
+    # Trigger New Mechanism Elucidation Analysis
     if st.button("🚀 Analyze Route & Elucidate Mechanisms", type="primary", use_container_width=True):
         if not resolved_api_key:
             st.error("Please enter a valid Gemini API Key in the sidebar.")
@@ -189,6 +208,7 @@ if "analysis_results" in st.session_state:
                 st.markdown("#### 🔄 Reaction Scheme & Conditions")
                 st.markdown(f"**Reagents & Conditions:** `{step.get('reagents_solvents_conditions', 'N/A')}`")
                 
+                # Attempt 2D Reaction SMARTS rendering
                 rxn_smarts = step.get("reaction_smarts", "")
                 rxn_rendered = False
                 
@@ -198,6 +218,7 @@ if "analysis_results" in st.session_state:
                         st.image(rxn_buf, caption=f"Step {step_num} 2D Transformation", use_container_width=True)
                         rxn_rendered = True
                 
+                # Fallback to individual molecule drawings
                 if not rxn_rendered:
                     sm_col, prod_col = st.columns(2)
                     sm_smiles = step.get("starting_material_smiles", "")
@@ -230,7 +251,7 @@ if "analysis_results" in st.session_state:
                     for inter in intermediates:
                         st.markdown(f"- **{inter.get('name', 'Intermediate')}:** `{inter.get('smiles_or_desc', '')}`")
 
-            # Process Parameters Expander
+            # Scale-Up & Process Parameters
             proc_params = step.get("process_parameters", {})
             with st.expander(f"📋 Step {step_num} Process Chemistry & Scale-Up Controls", expanded=False):
                 p1, p2, p3 = st.columns(3)
@@ -238,7 +259,7 @@ if "analysis_results" in st.session_state:
                 p2.markdown(f"**Workup & Isolation:**\n\n{proc_params.get('workup_and_isolation', 'N/A')}")
                 p3.markdown(f"**Impurity Profile Risks:**\n\n{proc_params.get('impurity_profile_risks', 'N/A')}")
 
-            # Analytical & IPC Expander
+            # Analytical & IPC Release Specifications
             analytical = step.get("analytical_and_ipc", {})
             if analytical:
                 with st.expander(f"🔬 Step {step_num} Analytical Release & IPC Specifications", expanded=False):
