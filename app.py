@@ -40,9 +40,10 @@ with st.sidebar:
     api_key_input = st.text_input(
         "Gemini API Key",
         type="password",
-        help="Paste your Google AI Studio API key (starts with 'AQ.' or 'AIza...')"
+        help="Paste your Google AI Studio API key (supports keys starting with 'AQ.' or 'AIza...')"
     )
     
+    # Resolve API Key from sidebar or Streamlit secrets
     raw_key = api_key_input or st.secrets.get("GEMINI_API_KEY", "")
     resolved_api_key = raw_key.strip().strip('"').strip("'")
     
@@ -176,10 +177,12 @@ if active_file:
         
         with st.spinner("Classifying named reactions, mapping 2D structures, and detailing electron flow..."):
             try:
+                # Pass _images and file_hash to prevent hashing errors with @st.cache_data
                 results = analyze_ros(
                     _client=client,
                     text_context=parsed_text,
-                    images=pdf_images
+                    _images=pdf_images,
+                    file_hash=file_hash
                 )
                 save_route(
                     file_hash=file_hash,
