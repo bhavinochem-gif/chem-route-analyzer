@@ -1,77 +1,86 @@
-import io
 import json
-import base64
-import re
-from PIL import Image
-from groq import Groq
+import streamlit as st
+from google import genai
+from google.genai import types
 
-def encode_image_to_base64(pil_image: Image.Image) -> str:
-    """Converts a PIL image to a base64 string for vision-capable models."""
-    buffered = io.BytesIO()
-    pil_image.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-def analyze_ros(client: Groq, text_context: str = None, images: list = None, model_name: str = "llama-3.3-70b-versatile") -> dict:
-    """Extracts chemical route synthesis, named reactions, and mechanism steps using Groq."""
+@st.cache_data(persist="disk", show_spinner=False)
+def analyze_ros(_client: genai.Client, text_context: str = None, images: list = None) -> dict:
+    """
+    Cached Route of Synthesis analyzer using Gemini 2.5 Flash.
+    Extracts named reactions, arrow-pushing mechanisms, CPPs, and IPC specifications.
+    """
+    prompt = """
+    You are an expert process organic chemist and reaction mechanism specialist.
+    Analyze the provided Route of Synthesis (ROS) from the ChemDraw text and/or PDF images.
     
-    system_prompt = """
-    You are an expert process chemist and reaction mechanism specialist.
-    Analyze the provided Route of Synthesis (ROS). You MUST return a strictly valid JSON object.
-    
-    JSON Schema:
+    Return a strictly valid JSON object matching this schema:
     {
-      "overall_route_summary": "High-level summary of the synthetic strategy and transformation steps",
+      "overall_route_summary": "High-level summary of the synthetic strategy, total steps, and key transformations",
       "steps": [
         {
           "step_number": 1,
-          "reaction_name": "Official Named Reaction (e.g., Suzuki-Miyaura, Swern Oxidation, Buchwald-Hartwig)",
-          "reagents_solvents_conditions": "e.g., Pd(dppf)Cl2, K2CO3, 1,4-Dioxane/H2O, 80 °C, 4 h",
+          "reaction_name": "Official IUPAC / Named Reaction (e.g., Suzuki-Miyaura, Buchwald-Hartwig, Swern Oxidation)",
+          "reagents_solvents_conditions": "e.g., Pd(dppf)Cl2 (0.05 eq), K2CO3 (2.0 eq), 1,4-Dioxane/H2O, 80 °C, 4 h",
           "starting_material_smiles": "Valid SMILES string",
           "product_smiles": "Valid SMILES string",
           "reaction_smarts": "Reactant1.Reactant2>>Product",
           "mechanism": {
             "mechanism_type": "e.g., Catalytic Cycle (Pd(0)/Pd(II)) or Polar Addition-Elimination",
             "arrow_pushing_description": [
-              "Step 1: Description of electron flow",
-              "Step 2: Intermediate formation",
-              "Step 3: Reductive elimination / product release"
+              "Step 1: Description of electron movement / oxidative addition",
+              "Step 2: Base-mediated transmetallation",
+              "Step 3: Reductive elimination to furnish biaryl product"
             ],
             "key_intermediates": [
               {"name": "Intermediate Name", "smiles_or_desc": "Structure or description"}
             ]
           },
           "process_parameters": {
-            "critical_process_parameters": "Temperature range, stirring rate, safety constraints",
-            "workup_and_isolation": "Quench, phase separation, solvent swap, crystallization",
-            "impurity_profile_risks": "Regioisomers, dimeric impurities, residual catalysts"
+            "critical_process_parameters": "Temperature range, agitation rate, inert gas purging, exotherm controls",
+            "workup_and_isolation": "Quench, phase separation, solvent swap, crystallization solvent system",
+            "impurity_profile_risks": "Regioisomers, dimeric impurities, residual catalyst metals"
+          },
+          "analytical_and_ipc": {
+            "ipc_checkpoints": [
+              {
+                "stage": "Reaction Completion",
+                "technique": "HPLC (UV 254 nm)",
+                "acceptance_criteria": "Starting Material <= 0.5% a/a, Conversion >= 98.0%"
+              },
+              {
+                "stage": "Aqueous Phase Extraction",
+                "technique": "TLC / HPLC",
+                "acceptance_criteria": "Product in aqueous layer <= 0.2%"
+              },
+              {
+                "stage": "Isolated Wet Cake",
+                "technique": "Karl Fischer / LOD",
+                "acceptance_criteria": "Water content <= 0.5% w/w, LOD <= 1.0%"
+              }
+            ],
+            "characterization": {
+              "hplc_assay_desc": "C18 (150 x 4.6 mm, 3.5 um), MeCN / 0.1% H3PO4 (Gradient 10-90% over 15 min), Purity >= 98.5%",
+              "nmr_diagnostic_peaks": "1H NMR (400 MHz, CDCl3): key diagnostic chemical shifts and coupling constants",
+              "mass_spec_target": "ESI-MS [M+H]+ target mass"
+            }
           }
         }
       ]
     }
     """
 
-    user_text = f"Analyze the following chemical route data:\n{text_context if text_context else 'Extract and elucidate the reaction mechanism steps from the provided synthesis route.'}"
+    contents = [prompt]
+    if text_context:
+        contents.append(f"Parsed ChemDraw Context:\n{text_context}")
+    if images:
+        contents.extend(images[:3])
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text}
-    ]
-
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=0.1,
-        max_tokens=4096
+    response = _client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=contents,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json"
+        )
     )
 
-    raw_output = response.choices[0].message.content
-    
-    # Safe JSON parse
-    try:
-        return json.loads(raw_output)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", raw_output, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        raise ValueError("Could not parse JSON output from Groq model.")
+    return json.loads(response.text)
