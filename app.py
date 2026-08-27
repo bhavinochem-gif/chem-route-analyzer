@@ -12,7 +12,7 @@ from src.db import (
     get_route_by_id,
     delete_route_by_id
 )
-from src.parsers import extract_cdxml_data, extract_pdf_pages
+from src.parsers import extract_chemical_text, extract_pdf_pages
 from src.chem_renderer import render_reaction_scheme, render_molecule_smiles
 from src.mechanism_engine import analyze_ros
 from src.exporter import generate_routes_excel
@@ -31,7 +31,7 @@ st.set_page_config(
 
 # --- Header ---
 st.title("⚗️ Chemical Route & Reaction Mechanism Platform")
-st.caption("Upload ChemDraw (.cdxml) or synthesis route PDFs to automatically elucidate named reactions, 2D chemical structures, electron-pushing mechanisms, and process scale-up parameters.")
+st.caption("Upload ChemDraw (.cdxml, .cdx), ChemSketch (.sk2, .csk), or synthesis route PDFs to automatically elucidate named reactions, 2D structures, electron-pushing mechanisms, and process parameters.")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
@@ -40,10 +40,9 @@ with st.sidebar:
     api_key_input = st.text_input(
         "Gemini API Key",
         type="password",
-        help="Paste your Google AI Studio API key (supports keys starting with 'AQ.' or 'AIza...')"
+        help="Paste your Google AI Studio API key (starts with 'AQ.' or 'AIza...')"
     )
     
-    # Resolve API Key from sidebar or Streamlit secrets
     raw_key = api_key_input or st.secrets.get("GEMINI_API_KEY", "")
     resolved_api_key = raw_key.strip().strip('"').strip("'")
     
@@ -52,7 +51,7 @@ with st.sidebar:
         if not resolved_api_key:
             st.warning("⚠️ Please provide an API key or define it in Secrets.")
         elif not (resolved_api_key.startswith("AQ.") or resolved_api_key.startswith("AIza")):
-            st.error("❌ Invalid format: Key must be a valid Google AI Studio key (starting with 'AQ.' or 'AIza').")
+            st.error("❌ Invalid format: Key must start with 'AQ.' or 'AIza'.")
         else:
             with st.spinner("Testing API connection with Gemini 3.6 Flash..."):
                 try:
@@ -125,11 +124,15 @@ with st.sidebar:
 
     st.markdown("---")
     st.header("📁 Route Upload")
-    uploaded_cdxml = st.file_uploader("Upload ChemDraw (.cdxml)", type=["cdxml", "xml"])
+    uploaded_chem = st.file_uploader(
+        "Upload Structure File (.cdxml, .cdx, .sk2, .csk)", 
+        type=["cdxml", "xml", "cdx", "sk2", "csk"],
+        help="Supports ChemDraw XML/Binary and ACD/ChemSketch formats."
+    )
     uploaded_pdf = st.file_uploader("Upload Route (.pdf)", type=["pdf"])
 
 # --- Main Route Processing Section ---
-active_file = uploaded_cdxml or uploaded_pdf
+active_file = uploaded_chem or uploaded_pdf
 
 if active_file:
     st.subheader("📄 Route Preview & Pre-processing")
@@ -141,11 +144,11 @@ if active_file:
     pdf_images = []
 
     with col1:
-        if uploaded_cdxml:
-            st.success(f"Loaded ChemDraw: `{uploaded_cdxml.name}`")
-            parsed_text = extract_cdxml_data(file_bytes)
-            with st.expander("Parsed CDXML Content", expanded=False):
-                st.text(parsed_text)
+        if uploaded_chem:
+            st.success(f"Loaded Structure File: `{uploaded_chem.name}`")
+            parsed_text = extract_chemical_text(file_bytes, uploaded_chem.name)
+            with st.expander("Parsed Structure Metadata", expanded=False):
+                st.text_area("Extracted Context", parsed_text, height=180)
 
     with col2:
         if uploaded_pdf:
