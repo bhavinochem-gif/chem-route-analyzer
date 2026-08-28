@@ -13,12 +13,12 @@ from src.db import (
     delete_route_by_id
 )
 from src.parsers import extract_chemical_text, extract_pdf_pages
-from src.chem_renderer import render_reaction_scheme, render_molecule_smiles
+from src.chem_renderer import render_reaction_scheme, generate_mechanism_flowchart_image
 from src.mechanism_engine import analyze_ros
 from src.exporter import generate_routes_excel
 from src.pdf_generator import build_pdf_report
 
-# Initialize persistent SQLite storage
+# Initialize SQLite database
 init_db()
 
 # --- Page Configuration ---
@@ -31,7 +31,7 @@ st.set_page_config(
 
 # --- Header ---
 st.title("⚗️ Chemical Route & Step-by-Step Reaction Mechanism Engine")
-st.caption("Upload Route of Synthesis (ROS) files to elucidate named reactions, 2D intermediate cascades, coordination states, and electron-pushing pathways.")
+st.caption("Upload Route of Synthesis (ROS) files to generate publication-style (a) Synthesis Routes and (b) Reaction Mechanism Pathway flowcharts with intermediate coordination states.")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
@@ -46,7 +46,6 @@ with st.sidebar:
     raw_key = api_key_input or st.secrets.get("GEMINI_API_KEY", "")
     resolved_api_key = raw_key.strip().strip('"').strip("'")
     
-    # Pre-Flight Connection Tester
     if st.button("🔌 Test API Connection", use_container_width=True):
         if not resolved_api_key:
             st.warning("⚠️ Please provide an API key or define it in Secrets.")
@@ -166,7 +165,7 @@ if active_file:
             st.session_state["active_file_name"] = active_file.name
             st.rerun()
 
-    # Trigger New Mechanism Elucidation Analysis
+    # Trigger Mechanism Elucidation Analysis
     if st.button("🚀 Elucidate Full Reaction Mechanism", type="primary", use_container_width=True):
         if not resolved_api_key:
             st.error("Please enter a valid Gemini API Key in the sidebar.")
@@ -174,7 +173,7 @@ if active_file:
             
         client = genai.Client(api_key=resolved_api_key)
         
-        with st.spinner("Constructing elementary mechanism cascade, chelates, and electron-pushing pathways..."):
+        with st.spinner("Constructing 2D elementary mechanism cascade, intermediates, and chelate pathways..."):
             try:
                 results = analyze_ros(
                     _client=client,
@@ -199,7 +198,7 @@ if "analysis_results" in st.session_state:
     active_filename = st.session_state.get("active_file_name", "Synthesis Route")
     
     st.markdown("---")
-    st.header("🧪 Comprehensive Reaction Mechanism Breakdown")
+    st.header("🧪 Comprehensive Reaction Mechanism Elucidation")
     st.info(f"**Route Strategy Overview:** {results.get('overall_route_summary', 'No summary generated.')}")
 
     for step in results.get("steps", []):
@@ -208,7 +207,7 @@ if "analysis_results" in st.session_state:
         rxn_class = step.get("reaction_class_type", "General Transformation")
         
         with st.container():
-            # Header
+            # Step Header
             header_col1, header_col2 = st.columns([3, 1])
             with header_col1:
                 st.markdown(f"### (a) Synthesis Route {step_num}: {rxn_name}")
@@ -217,71 +216,41 @@ if "analysis_results" in st.session_state:
             
             st.markdown(f"**Conditions & Solvents:** `{step.get('reagents_solvents_conditions', 'N/A')}`")
             
-            # Overall Scheme Diagram
+            # (a) Overall Scheme Diagram
             rxn_smarts = step.get("reaction_smarts", "")
             if rxn_smarts and ">" in rxn_smarts:
                 rxn_buf = render_reaction_scheme(rxn_smarts)
                 if rxn_buf:
                     st.image(rxn_buf, caption=f"Overall Step {step_num} Transformation", use_container_width=True)
 
-            # (b) Visual Elementary Mechanism Pathway Cascade
+            # (b) Visual Reaction Mechanism Pathway Canvas
             st.markdown(f"### (b) Reaction Mechanism Pathway (Step-by-Step Cascade)")
             pathway = step.get("elementary_mechanism_pathway", [])
             
             if pathway:
-                for micro in pathway:
-                    m_num = micro.get("micro_step_num", 1)
-                    m_title = micro.get("stage_title", "Mechanistic Stage")
-                    m_reagents = micro.get("reagents_in_out", "")
-                    m_inter_smiles = micro.get("intermediate_smiles", "")
-                    m_arrows = micro.get("arrow_pushing", "")
-                    m_driving = micro.get("driving_force", "")
-                    
-                    with st.expander(f"🔹 Stage {m_num}: {m_title} ({m_reagents})", expanded=True):
-                        card_left, card_right = st.columns([1, 2])
+                # 1. Render the Continuous Pathway Image
+                flowchart_buf = generate_mechanism_flowchart_image(pathway, title=f"(b) Reaction Mechanism — Step {step_num} Elementary Pathway")
+                if flowchart_buf:
+                    st.image(flowchart_buf, caption=f"Step {step_num} Elementary Mechanism Flowchart", use_container_width=True)
+                
+                # 2. Stage-by-Stage Electron-Pushing Details
+                with st.expander("🔍 View Detailed Electron Movement & Driving Force Breakdown", expanded=False):
+                    for stage in pathway:
+                        s_num = stage.get("stage_number", "")
+                        s_title = stage.get("stage_title", "")
+                        s_in = stage.get("reagents_in", "")
+                        s_out = stage.get("reagents_out", "")
+                        s_flow = stage.get("electron_pushing_desc", "")
                         
-                        with card_left:
-                            if m_inter_smiles:
-                                ibuf = render_molecule_smiles(m_inter_smiles, width=280, height=180)
-                                if ibuf:
-                                    st.image(ibuf, caption=f"Intermediate {m_num} / Coordination State", use_container_width=True)
-                                else:
-                                    st.code(m_inter_smiles, language="text")
-                            else:
-                                st.caption("Transition State / Transient Complex")
-
-                        with card_right:
-                            st.markdown(f"**Reagents Added / Eliminated:** `{m_reagents}`")
-                            st.markdown(f"**Electron Movement & Curved Arrows:**\n{m_arrows}")
-                            if m_driving:
-                                st.markdown(f"**Thermodynamic / Kinetic Driving Force:** {m_driving}")
-
-            # Bond Changes & Role Balance
-            st.markdown("#### ⚡ Bond Changes & Chelation Roles")
-            bond_info = step.get("bond_analysis", {})
-            b_col1, b_col2, b_col3 = st.columns(3)
-            
-            with b_col1:
-                st.markdown("**✂️ Bonds Broken:**")
-                for b in bond_info.get("bonds_broken", []):
-                    st.markdown(f"- 🔴 `{b}`")
-            with b_col2:
-                st.markdown("**🔗 Bonds Formed:**")
-                for b in bond_info.get("bonds_formed", []):
-                    st.markdown(f"- 🟢 `{b}`")
-            with b_col3:
-                roles = bond_info.get("nucleophile_electrophile_roles", {})
-                st.markdown("**🎯 Chelation & Roles:**")
-                if roles.get("catalyst_or_chelation"):
-                    st.markdown(f"- **Chelation:** `{roles.get('catalyst_or_chelation')}`")
-                if roles.get("nucleophile"):
-                    st.markdown(f"- **Nucleophile:** `{roles.get('nucleophile')}`")
-                if roles.get("electrophile"):
-                    st.markdown(f"- **Electrophile:** `{roles.get('electrophile')}`")
+                        st.markdown(f"**Stage {s_num}: {s_title}**")
+                        if s_in or s_out:
+                            st.caption(f"Reagents Added: `{s_in}` | Eliminated: `{s_out}`")
+                        st.markdown(f"• {s_flow}")
+                        st.markdown("---")
 
             # Scale-Up & Process Controls
             proc_params = step.get("process_parameters", {})
-            with st.expander(f"📋 Step {step_num} Process & Impurity Controls", expanded=False):
+            with st.expander(f"📋 Step {step_num} Scale-Up, CPPs & Impurity Risks", expanded=False):
                 p1, p2, p3 = st.columns(3)
                 p1.markdown(f"**Critical Process Parameters (CPPs):**\n\n{proc_params.get('critical_process_parameters', 'N/A')}")
                 p2.markdown(f"**Workup & Isolation:**\n\n{proc_params.get('workup_and_isolation', 'N/A')}")
