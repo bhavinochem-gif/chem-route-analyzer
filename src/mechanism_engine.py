@@ -11,67 +11,91 @@ def analyze_ros(
     file_hash: str = ""
 ) -> dict:
     """
-    Analyzes ROS with explicit bond-breaking, bond-forming, 
-    atom-mapping, and fundamental mechanism classification.
+    Analyzes ROS with explicit elementary mechanistic pathways, 
+    coordination complexes, intermediate structures, and arrow-pushing logic.
     """
     prompt = """
-    You are an expert organic reaction mechanism specialist.
-    Analyze the provided Route of Synthesis (ROS) and extract the step-by-step electron movement,
-    bond-breaking, and bond-forming events similar to standard organic textbook mechanism charts.
+    You are an expert physical organic and process chemist specializing in reaction mechanisms.
+    Analyze the provided Route of Synthesis (ROS) and elucidate the step-by-step elementary mechanistic pathway,
+    including coordination states, reactive intermediates, formal charge shifts, and electron-pushing sequences.
     
-    You MUST return a strictly valid JSON object matching this schema:
+    Return a strictly valid JSON object matching this schema:
     {
-      "overall_route_summary": "High-level summary of the synthetic strategy",
+      "overall_route_summary": "High-level summary of the synthetic sequence",
       "steps": [
         {
           "step_number": 1,
-          "reaction_name": "Specific Name (e.g., SN2 Nucleophilic Substitution / Suzuki Coupling / E2 Elimination)",
-          "reaction_class_type": "Substitution | Addition | Elimination | Acid-Base | Catalytic Cycle | Rearrangement",
-          "reagents_solvents_conditions": "e.g., NaCN, DMF, 60 °C, 2 h",
-          "starting_material_smiles": "Valid SMILES",
-          "product_smiles": "Valid SMILES",
-          "byproducts": ["NaBr", "H2O"],
-          "reaction_smarts": "Reactants>>Products",
-          "atom_mapped_smarts": "e.g., [CH3:4][CH:3]([CH3:5])[CH2:2][CH2:1][Br:6].[Na+:7].[C-:8]#[N:9]>>[CH3:4][CH:3]([CH3:5])[CH2:2][CH2:1][C:8]#[N:9].[Na+:7].[Br-:6]",
+          "reaction_name": "e.g., Friedländer / Skraup Quinoline Annulation",
+          "reaction_class_type": "Condensation-Cyclization / Annulation",
+          "reagents_solvents_conditions": "KOtBu, THF, 25 °C, 10-20 min",
+          "starting_material_smiles": "Nc1ccccc1C=O",
+          "product_smiles": "Cc1nc2ccccc2cc1",
+          "reaction_smarts": "Nc1ccccc1C=O.CC(=O)C(C)C>>Cc1nc2ccccc2cc1",
+          "byproducts": ["H2O", "tBuOH", "KOH"],
           "bond_analysis": {
-            "bonds_broken": [
-              "C(1)-Br (Heterolytic cleavage / Leaving group departure)",
-              "Other broken bonds..."
-            ],
-            "bonds_formed": [
-              "C(1)-C(N) (Nucleophilic displacement / sigma bond formation)",
-              "Other formed bonds..."
-            ],
+            "bonds_broken": ["C=O (aldehyde carbonyl pi-bond)", "C-H (alpha to ketone)", "C-O (alcohol elimination)"],
+            "bonds_formed": ["C=N (imine double bond)", "C(Ar)-C(alkyl) (intramolecular aldol condensation)", "C=C (aromatic quinoline core)"],
             "nucleophile_electrophile_roles": {
-              "nucleophile": "Cyanide anion (:CN-)",
-              "electrophile": "Alkyl bromide (C-1 electrophilic carbon)",
-              "leaving_group": "Bromide ion (:Br-)"
+              "nucleophile": "Aniline nitrogen lone pair & potassium enolate alpha-carbon",
+              "electrophile": "Aldehyde carbonyl carbon & ketone carbonyl carbon",
+              "catalyst_or_chelation": "K+ cation coordinated by solvent (THF)3 stabilizing oxo/aza chelates"
             }
           },
-          "mechanism": {
-            "mechanism_type": "Concerted bimolecular substitution (SN2)",
-            "arrow_pushing_description": [
-              "1. Nucleophilic attack: Cyanide lone pair attacks the backside of C(1).",
-              "2. Transition state: Pentacoordinate carbon with partial C-CN bond formation and partial C-Br bond cleavage.",
-              "3. Inversion of configuration & departure of bromide anion."
-            ],
-            "key_intermediates": [
-              {"name": "SN2 Transition State", "smiles_or_desc": "[NC---C(1)---Br]‡"}
-            ]
-          },
+          "elementary_mechanism_pathway": [
+            {
+              "micro_step_num": 1,
+              "stage_title": "Lewis Acid / Cation Chelation",
+              "reagents_in_out": "+ K+ (THF)3",
+              "reactant_smiles": "Nc1ccccc1C=O",
+              "intermediate_smiles": "Nc1ccccc1C=O",
+              "micro_smarts": "Nc1ccccc1C=O>>Nc1ccccc1C=O",
+              "arrow_pushing": "Potassium cation coordinates simultaneously to the formyl oxygen and amino nitrogen lone pairs in THF.",
+              "driving_force": "Chelation pre-organization reducing activation energy."
+            },
+            {
+              "micro_step_num": 2,
+              "stage_title": "Enolate Formation & Intermolecular Imine Condensation",
+              "reagents_in_out": "+ KOtBu, - tBuOH, - H2O",
+              "reactant_smiles": "CC(=O)C(C)C",
+              "intermediate_smiles": "CC(C)C(=O)C=Nc1ccccc1C=O",
+              "micro_smarts": "Nc1ccccc1C=O.CC(=O)C(C)C>>CC(C)C(=O)C=Nc1ccccc1C=O",
+              "arrow_pushing": "tBuO- deprotonates alpha-methyl carbon to generate enolate; nucleophilic attack on coordinated formyl group yields the imine-enolate adduct.",
+              "driving_force": "Thermodynamic stability of conjugated imine."
+            },
+            {
+              "micro_step_num": 3,
+              "stage_title": "Intramolecular Cyclization (Aldol Addition)",
+              "reagents_in_out": "Base-promoted enolization",
+              "reactant_smiles": "CC(C)C(=O)C=Nc1ccccc1C=O",
+              "intermediate_smiles": "CC(C)C1=Nc2ccccc2C(O)C1",
+              "micro_smarts": "CC(C)C(=O)C=Nc1ccccc1C=O>>CC(C)C1=Nc2ccccc2C(O)C1",
+              "arrow_pushing": "Nucleophilic addition of enamine/enolate alpha-carbon to the adjacent carbonyl carbon generates the dihydroquinoline alkoxide.",
+              "driving_force": "Favorable 6-endo-trig ring closure."
+            },
+            {
+              "micro_step_num": 4,
+              "stage_title": "Dehydration & Aromatization",
+              "reagents_in_out": "- tBuOH, - [K(THF)3-OH]",
+              "reactant_smiles": "CC(C)C1=Nc2ccccc2C(O)C1",
+              "intermediate_smiles": "Cc1nc2ccccc2cc1",
+              "micro_smarts": "CC(C)C1=Nc2ccccc2C(O)C1>>Cc1nc2ccccc2cc1",
+              "arrow_pushing": "E1cB elimination of hydroxide coordinated to potassium furnishes the aromatic quinoline system.",
+              "driving_force": "Aromatic resonance stabilization (quinoline core)."
+            }
+          ],
           "process_parameters": {
-            "critical_process_parameters": "Exotherm control, dipole-aprotic solvent selectivity",
-            "workup_and_isolation": "Aqueous wash, organic extraction, distillation",
-            "impurity_profile_risks": "E2 elimination byproducts, isonitrile regioisomers"
+            "critical_process_parameters": "Base stoichiometry (KOtBu), strict moisture control in THF (<200 ppm), reaction temperature 20-25 °C",
+            "workup_and_isolation": "Quench with water, extract with ethyl acetate, wash with brine, vacuum distillation or recrystallization",
+            "impurity_profile_risks": "Uncyclized imine intermediate, self-condensation of ketone, dihydroquinoline byproduct"
           },
           "analytical_and_ipc": {
             "ipc_checkpoints": [
-              {"stage": "Reaction Completion", "technique": "GC / HPLC", "acceptance_criteria": "SM <= 0.5%"}
+              {"stage": "Reaction Completion", "technique": "HPLC (UV 254 nm)", "acceptance_criteria": "2-Aminobenzaldehyde <= 0.5% a/a"}
             ],
             "characterization": {
-              "hplc_assay_desc": "Reverse Phase C18, 254 nm",
-              "nmr_diagnostic_peaks": "1H NMR: C(1)-H shifted from 3.4 ppm (alkyl-Br) to 2.3 ppm (alkyl-CN)",
-              "mass_spec_target": "MS [M+H]+"
+              "hplc_assay_desc": "C18 (150 x 4.6 mm, 3.5 um), MeCN/H2O 0.1% TFA",
+              "nmr_diagnostic_peaks": "1H NMR (400 MHz, CDCl3): delta 8.05 (d, J = 8.4 Hz, 1H, H-4 quinoline), 7.28 (s, 1H, H-3 quinoline)",
+              "mass_spec_target": "ESI-MS [M+H]+ target mass"
             }
           }
         }
