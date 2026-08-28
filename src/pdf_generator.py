@@ -90,14 +90,14 @@ class BrandedNumberedCanvas(canvas.Canvas):
         
         self.drawString(54, letter[1] - 36, self.org_name.upper())
         self.setFont("Helvetica", 8)
-        self.drawRightString(letter[0] - 54, letter[1] - 36, "Analytical Specifications & Synthesis Dossier")
+        self.drawRightString(letter[0] - 54, letter[1] - 36, "Reaction Mechanism & Synthesis Dossier")
         
         self.setStrokeColor(self.theme["rule_color"])
         self.setLineWidth(0.5)
         self.line(54, letter[1] - 42, letter[0] - 54, letter[1] - 42)
         
         self.line(54, 45, letter[0] - 54, 45)
-        self.drawString(54, 32, "CONFIDENTIAL — PROCESS R&D & ANALYTICAL DEVELOPMENT")
+        self.drawString(54, 32, "CONFIDENTIAL — PROCESS R&D & MECHANISM ELUCIDATION")
         self.drawRightString(letter[0] - 54, 32, f"Page {self._pageNumber} of {page_count}")
         self.restoreState()
 
@@ -112,69 +112,6 @@ def build_report_styles(theme):
     styles.add(ParagraphStyle(name="MetaLabel", fontName="Helvetica-Bold", fontSize=7.5, leading=9.5, textColor=theme["text_muted"]))
     styles.add(ParagraphStyle(name="MetaValue", fontName="Helvetica", fontSize=8, leading=10, textColor=theme["text_dark"]))
     return styles
-
-def create_ipc_and_analytical_flowables(step_data: dict, styles, theme, content_width: float) -> list:
-    flowables = []
-    analytical_info = step_data.get("analytical_and_ipc", {})
-    if not analytical_info:
-        return flowables
-
-    flowables.append(Spacer(1, 4))
-    flowables.append(Paragraph("<b>In-Process Control (IPC) & Analytical Release Specifications</b>", styles["SubSectionHeader"]))
-    
-    ipc_list = analytical_info.get("ipc_checkpoints", [])
-    if ipc_list:
-        table_rows = [
-            [
-                Paragraph("<b>Sampling Stage / Checkpoint</b>", styles["IPCTableHeader"]),
-                Paragraph("<b>Analytical Technique</b>", styles["IPCTableHeader"]),
-                Paragraph("<b>Acceptance Criteria / Limit</b>", styles["IPCTableHeader"])
-            ]
-        ]
-        for item in ipc_list:
-            table_rows.append([
-                Paragraph(item.get("stage", "IPC Point"), styles["BodyTextDark"]),
-                Paragraph(item.get("technique", "HPLC/GC"), styles["BodyTextDark"]),
-                Paragraph(item.get("acceptance_criteria", "N/A"), styles["BodyTextDark"])
-            ])
-
-        col_w1 = content_width * 0.32
-        col_w2 = content_width * 0.28
-        col_w3 = content_width * 0.40
-
-        ipc_table = Table(table_rows, colWidths=[col_w1, col_w2, col_w3])
-        ts = [
-            ("BACKGROUND", (0, 0), (-1, 0), theme["ipc_header_bg"]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("GRID", (0, 0), (-1, -1), 0.5, theme["table_border"]),
-            ("PADDING", (0, 0), (-1, -1), 4),
-        ]
-        for row_idx in range(1, len(table_rows)):
-            bg_col = theme["table_alt_bg"] if row_idx % 2 == 0 else theme["table_bg"]
-            ts.append(("BACKGROUND", (0, row_idx), (-1, row_idx), bg_col))
-
-        ipc_table.setStyle(TableStyle(ts))
-        flowables.append(ipc_table)
-        flowables.append(Spacer(1, 5))
-
-    char = analytical_info.get("characterization", {})
-    if char:
-        char_data = [
-            [Paragraph("<b>HPLC / Assay Method:</b>", styles["MetaLabel"]), Paragraph(char.get("hplc_assay_desc", "N/A"), styles["BodyTextDark"])],
-            [Paragraph("<b>Diagnostic <sup>1</sup>H NMR Signals:</b>", styles["MetaLabel"]), Paragraph(char.get("nmr_diagnostic_peaks", "N/A"), styles["BodyTextDark"])],
-            [Paragraph("<b>Mass Spec (m/z) Target:</b>", styles["MetaLabel"]), Paragraph(char.get("mass_spec_target", "N/A"), styles["BodyTextDark"])]
-        ]
-        char_table = Table(char_data, colWidths=[130, content_width - 130])
-        char_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), theme["accent_bg"]),
-            ("BOX", (0, 0), (-1, -1), 0.5, theme["accent_border"]),
-            ("GRID", (0, 0), (-1, -1), 0.5, theme["accent_border"]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("PADDING", (0, 0), (-1, -1), 3.5),
-        ]))
-        flowables.append(char_table)
-
-    return flowables
 
 def build_pdf_report(
     route_data: dict, 
@@ -199,11 +136,12 @@ def build_pdf_report(
     story = []
     content_width = letter[0] - 108
 
+    # Title Block
     title_paragraphs = [
         Paragraph(f"<b>{org_name}</b>", styles["MetaLabel"]),
-        Paragraph("Synthesis Route & Analytical Release Dossier", styles["DocTitle"]),
+        Paragraph("Synthesis Route & Detailed Reaction Mechanism Dossier", styles["DocTitle"]),
         Spacer(1, 3),
-        Paragraph(f"<b>File:</b> {file_name} &nbsp;|&nbsp; <b>Date:</b> {datetime.now().strftime('%Y-%m-%d')} &nbsp;|&nbsp; <b>Steps:</b> {len(route_data.get('steps', []))}", styles["MetaValue"])
+        Paragraph(f"<b>Source File:</b> {file_name} &nbsp;|&nbsp; <b>Date:</b> {datetime.now().strftime('%Y-%m-%d')} &nbsp;|&nbsp; <b>Steps:</b> {len(route_data.get('steps', []))}", styles["MetaValue"])
     ]
 
     if logo_bytes:
@@ -213,7 +151,6 @@ def build_pdf_report(
         aspect = h / float(w)
         logo_w = 90
         logo_h = min(logo_w * aspect, 45)
-        
         logo_img_buf.seek(0)
         logo_flowable = RLImage(logo_img_buf, width=logo_w, height=logo_h)
 
@@ -231,7 +168,8 @@ def build_pdf_report(
     story.append(Spacer(1, 6))
     story.append(HRFlowable(width="100%", thickness=1, color=theme["primary"], spaceAfter=8))
 
-    overview_text = route_data.get("overall_route_summary", "No route summary available.")
+    # Overall Route Strategy
+    overview_text = route_data.get("overall_route_summary", "No summary available.")
     overview_box = Table(
         [[Paragraph("<b>Synthetic Route Strategy Overview</b>", styles["SectionHeader"])],
          [Paragraph(overview_text, styles["BodyTextDark"])]],
@@ -240,18 +178,21 @@ def build_pdf_report(
     overview_box.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), theme["accent_bg"]),
         ("BOX", (0, 0), (-1, -1), 1, theme["accent_border"]),
-        ("PADDING", (0, 0), (-1, -1), 7),
+        ("PADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(overview_box)
     story.append(Spacer(1, 10))
 
+    # Iterate Steps
     for step in route_data.get("steps", []):
         step_elements = []
         step_num = step.get("step_number", 1)
         rxn_name = step.get("reaction_name", "Unclassified Transformation")
+        rxn_class = step.get("reaction_class_type", "General Transformation")
         
-        step_elements.append(Paragraph(f"Step {step_num}: {rxn_name}", styles["StepTitle"]))
+        step_elements.append(Paragraph(f"Step {step_num}: {rxn_name} ({rxn_class})", styles["StepTitle"]))
         
+        # Conditions Block
         conditions = step.get("reagents_solvents_conditions", "N/A")
         cond_table = Table(
             [[Paragraph("<b>Conditions & Reagents:</b>", styles["MetaLabel"]), Paragraph(conditions, styles["BodyTextDark"])]],
@@ -266,54 +207,52 @@ def build_pdf_report(
         step_elements.append(cond_table)
         step_elements.append(Spacer(1, 5))
 
+        # Overall Reaction Scheme Diagram
         rxn_smarts = step.get("reaction_smarts", "")
-        img_flowable = None
-
         if rxn_smarts and ">" in rxn_smarts:
             rxn_buf = render_reaction_scheme(rxn_smarts)
             if rxn_buf:
-                img_flowable = RLImage(rxn_buf, width=content_width, height=120)
+                step_elements.append(RLImage(rxn_buf, width=content_width, height=110))
+                step_elements.append(Spacer(1, 6))
 
-        if not img_flowable:
-            sm_buf = render_molecule_smiles(step.get("starting_material_smiles", ""))
-            prod_buf = render_molecule_smiles(step.get("product_smiles", ""))
-            if sm_buf and prod_buf:
-                mol_cells = [[
-                    RLImage(sm_buf, width=220, height=110),
-                    Paragraph("<b>➔</b>", ParagraphStyle('Arrow', fontName='Helvetica-Bold', fontSize=16, alignment=1, textColor=theme["secondary"])),
-                    RLImage(prod_buf, width=220, height=110)
-                ]]
-                img_table = Table(mol_cells, colWidths=[230, 44, 230])
-                img_table.setStyle(TableStyle([
-                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ]))
-                img_flowable = img_table
+        # Elementary Mechanism Pathway Breakdown
+        pathway = step.get("elementary_mechanism_pathway", [])
+        if pathway:
+            step_elements.append(Paragraph("<b>Elementary Reaction Mechanism Pathway (Step-by-Step Cascade)</b>", styles["SubSectionHeader"]))
+            mech_rows = [
+                [
+                    Paragraph("<b>Micro-Step / Stage</b>", styles["IPCTableHeader"]),
+                    Paragraph("<b>Intermediate / Scheme</b>", styles["IPCTableHeader"]),
+                    Paragraph("<b>Reagents & Electron Movement</b>", styles["IPCTableHeader"])
+                ]
+            ]
+            for m in pathway:
+                inter_smiles = m.get("intermediate_smiles", "")
+                img_cell = Paragraph(f"<code>{inter_smiles}</code>", styles["BodyTextDark"])
+                if inter_smiles:
+                    ibuf = render_molecule_smiles(inter_smiles, width=160, height=90)
+                    if ibuf:
+                        img_cell = RLImage(ibuf, width=110, height=65)
 
-        if img_flowable:
-            step_elements.append(img_flowable)
-            step_elements.append(Spacer(1, 5))
+                desc_text = f"<b>Reagents:</b> {m.get('reagents_in_out', 'N/A')}<br/><b>Electron Flow:</b> {m.get('arrow_pushing', '')}<br/><b>Driving Force:</b> {m.get('driving_force', '')}"
+                
+                mech_rows.append([
+                    Paragraph(f"<b>Stage {m.get('micro_step_num', '')}:</b><br/>{m.get('stage_title', '')}", styles["BodyTextDark"]),
+                    img_cell,
+                    Paragraph(desc_text, styles["BodyTextDark"])
+                ])
 
-        mech = step.get("mechanism", {})
-        mech_lines = [f"<b>Mechanism Class:</b> {mech.get('mechanism_type', 'N/A')}"]
-        for idx, flow in enumerate(mech.get("arrow_pushing_description", []), 1):
-            mech_lines.append(f"<b>{idx}.</b> {flow}")
+            mech_table = Table(mech_rows, colWidths=[120, 120, content_width - 240])
+            mech_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), theme["primary"]),
+                ("GRID", (0, 0), (-1, -1), 0.5, theme["table_border"]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("PADDING", (0, 0), (-1, -1), 4),
+            ]))
+            step_elements.append(mech_table)
+            step_elements.append(Spacer(1, 6))
 
-        intermediates = mech.get("key_intermediates", [])
-        if intermediates:
-            inter_str = ", ".join([f"<i>{item.get('name')}:</i> {item.get('smiles_or_desc')}" for item in intermediates])
-            mech_lines.append(f"<b>Key Intermediates:</b> {inter_str}")
-
-        mech_paragraphs = [Paragraph(line, styles["BodyTextDark"]) for line in mech_lines]
-        mech_box = Table([[Paragraph("<b>Electron-Pushing Mechanism</b>", styles["SectionHeader"])], [mech_paragraphs]], colWidths=[content_width])
-        mech_box.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), theme["mech_bg"]),
-            ("BOX", (0, 0), (-1, -1), 0.5, theme["mech_border"]),
-            ("PADDING", (0, 0), (-1, -1), 5),
-        ]))
-        step_elements.append(mech_box)
-        step_elements.append(Spacer(1, 5))
-
+        # Process Parameters Block
         proc = step.get("process_parameters", {})
         proc_data = [
             [Paragraph("<b>Critical Process Parameters (CPPs):</b>", styles["MetaLabel"]), Paragraph(proc.get("critical_process_parameters", "N/A"), styles["BodyTextDark"])],
@@ -328,10 +267,6 @@ def build_pdf_report(
             ("PADDING", (0, 0), (-1, -1), 3.5),
         ]))
         step_elements.append(proc_table)
-
-        analytical_flowables = create_ipc_and_analytical_flowables(step, styles, theme, content_width)
-        step_elements.extend(analytical_flowables)
-
         step_elements.append(Spacer(1, 6))
         step_elements.append(HRFlowable(width="100%", thickness=0.5, color=theme["rule_color"], spaceAfter=8))
 
