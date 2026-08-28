@@ -31,7 +31,7 @@ st.set_page_config(
 
 # --- Header ---
 st.title("⚗️ Chemical Route & Reaction Mechanism Platform")
-st.caption("Upload ChemDraw (.cdxml, .cdx), ChemSketch (.sk2, .csk), or synthesis route PDFs to automatically elucidate named reactions, 2D structures, electron-pushing mechanisms, and process parameters.")
+st.caption("Upload ChemDraw (.cdxml, .cdx), ChemSketch (.sk2, .csk), or synthesis route PDFs to automatically elucidate named reactions, atom-mapped 2D structures, bond breaking/forming events, and process parameters.")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
@@ -52,7 +52,7 @@ with st.sidebar:
         if not resolved_api_key:
             st.warning("⚠️ Please provide an API key or define it in Secrets.")
         elif not (resolved_api_key.startswith("AQ.") or resolved_api_key.startswith("AIza")):
-            st.error("❌ Invalid format: Key must start with 'AQ.' or 'AIza'.")
+            st.error("❌ Invalid format: Key must be a valid Google AI Studio key (starting with 'AQ.' or 'AIza').")
         else:
             with st.spinner("Testing API connection with Gemini 3.6 Flash..."):
                 try:
@@ -175,7 +175,7 @@ if active_file:
             
         client = genai.Client(api_key=resolved_api_key)
         
-        with st.spinner("Classifying named reactions, mapping 2D structures, and detailing electron flow..."):
+        with st.spinner("Classifying named reactions, determining bond cleavages/formations, and mapping 2D structures..."):
             try:
                 # Pass _images and file_hash to prevent hashing errors with @st.cache_data
                 results = analyze_ros(
@@ -207,70 +207,108 @@ if "analysis_results" in st.session_state:
     for step in results.get("steps", []):
         step_num = step.get("step_number", 1)
         rxn_name = step.get("reaction_name", "Unclassified Transformation")
+        rxn_class = step.get("reaction_class_type", "General Transformation")
         
         with st.container():
-            st.markdown(f"### Step {step_num}: {rxn_name}")
-            scheme_col, mech_col = st.columns([1, 1])
+            # Step Header with Category Badge
+            header_col1, header_col2 = st.columns([3, 1])
+            with header_col1:
+                st.markdown(f"### Step {step_num}: {rxn_name}")
+            with header_col2:
+                st.markdown(f"#### `🏷️ {rxn_class}`")
             
-            with scheme_col:
-                st.markdown("#### 🔄 Reaction Scheme & Conditions")
-                st.markdown(f"**Reagents & Conditions:** `{step.get('reagents_solvents_conditions', 'N/A')}`")
+            # --- 2D Reaction Transformation Scheme ---
+            st.markdown(f"**Reagents & Conditions:** `{step.get('reagents_solvents_conditions', 'N/A')}`")
+            
+            rxn_smarts = step.get("atom_mapped_smarts") or step.get("reaction_smarts", "")
+            rxn_rendered = False
+            
+            if rxn_smarts and ">" in rxn_smarts:
+                rxn_buf = render_reaction_scheme(rxn_smarts, show_atom_numbers=True)
+                if rxn_buf:
+                    st.image(rxn_buf, caption=f"Step {step_num} Transformation Scheme (Atom-Mapped)", use_container_width=True)
+                    rxn_rendered = True
+            
+            # Fallback to individual molecule drawings if SMARTS fails
+            if not rxn_rendered:
+                sm_col, prod_col = st.columns(2)
+                sm_smiles = step.get("starting_material_smiles", "")
+                prod_smiles = step.get("product_smiles", "")
                 
-                # Attempt 2D Reaction SMARTS rendering
-                rxn_smarts = step.get("reaction_smarts", "")
-                rxn_rendered = False
+                sm_buf = render_molecule_smiles(sm_smiles, show_atom_numbers=True) if sm_smiles else None
+                prod_buf = render_molecule_smiles(prod_smiles, show_atom_numbers=True) if prod_smiles else None
                 
-                if rxn_smarts and ">" in rxn_smarts:
-                    rxn_buf = render_reaction_scheme(rxn_smarts)
-                    if rxn_buf:
-                        st.image(rxn_buf, caption=f"Step {step_num} 2D Transformation", use_container_width=True)
-                        rxn_rendered = True
-                
-                # Fallback to individual molecule drawings
-                if not rxn_rendered:
-                    sm_col, prod_col = st.columns(2)
-                    sm_smiles = step.get("starting_material_smiles", "")
-                    prod_smiles = step.get("product_smiles", "")
+                if sm_buf:
+                    sm_col.image(sm_buf, caption="Starting Material", use_container_width=True)
+                elif sm_smiles:
+                    sm_col.code(sm_smiles, language="text")
                     
-                    sm_buf = render_molecule_smiles(sm_smiles) if sm_smiles else None
-                    prod_buf = render_molecule_smiles(prod_smiles) if prod_smiles else None
-                    
-                    if sm_buf:
-                        sm_col.image(sm_buf, caption="Starting Material", use_container_width=True)
-                    elif sm_smiles:
-                        sm_col.code(sm_smiles, language="text")
-                        
-                    if prod_buf:
-                        prod_col.image(prod_buf, caption="Product / Intermediate", use_container_width=True)
-                    elif prod_smiles:
-                        prod_col.code(prod_smiles, language="text")
+                if prod_buf:
+                    prod_col.image(prod_buf, caption="Product / Intermediate", use_container_width=True)
+                elif prod_smiles:
+                    prod_col.code(prod_smiles, language="text")
 
-            with mech_col:
-                st.markdown("#### ⚡ Reaction Mechanism & Electron Flow")
-                mech_data = step.get("mechanism", {})
-                st.markdown(f"**Mechanism Class:** `{mech_data.get('mechanism_type', 'N/A')}`")
-                
-                for flow_step in mech_data.get("arrow_pushing_description", []):
-                    st.markdown(f"• {flow_step}")
-                
-                intermediates = mech_data.get("key_intermediates", [])
-                if intermediates:
-                    st.markdown("**Key Intermediates / Catalytic Species:**")
-                    for inter in intermediates:
-                        st.markdown(f"- **{inter.get('name', 'Intermediate')}:** `{inter.get('smiles_or_desc', '')}`")
+            # --- "What Bonds Form, What Bonds Break?" Matrix ---
+            st.markdown("#### ⚡ Bond Changes & Electron Balance")
+            bond_info = step.get("bond_analysis", {})
+            
+            card_col1, card_col2, card_col3 = st.columns(3)
+            
+            with card_col1:
+                st.markdown("**✂️ Bonds Broken (Cleaved):**")
+                broken_list = bond_info.get("bonds_broken", [])
+                if broken_list:
+                    for b in broken_list:
+                        st.markdown(f"- 🔴 `{b}`")
+                else:
+                    st.caption("No covalent bonds cleaved.")
 
-            # Scale-Up & Process Parameters
+            with card_col2:
+                st.markdown("**🔗 Bonds Formed (Created):**")
+                formed_list = bond_info.get("bonds_formed", [])
+                if formed_list:
+                    for b in formed_list:
+                        st.markdown(f"- 🟢 `{b}`")
+                else:
+                    st.caption("No new covalent bonds formed.")
+
+            with card_col3:
+                roles = bond_info.get("nucleophile_electrophile_roles", {})
+                byproducts = step.get("byproducts", [])
+                st.markdown("**🎯 Reacting Roles & Byproducts:**")
+                if roles.get("nucleophile"):
+                    st.markdown(f"- **Nucleophile:** `{roles.get('nucleophile')}`")
+                if roles.get("electrophile"):
+                    st.markdown(f"- **Electrophile:** `{roles.get('electrophile')}`")
+                if roles.get("leaving_group"):
+                    st.markdown(f"- **Leaving Group:** `{roles.get('leaving_group')}`")
+                if byproducts:
+                    st.markdown(f"- **Byproducts:** `{', '.join(byproducts)}`")
+
+            # --- Step-by-Step Electron Flow & Mechanism Details ---
+            mech_data = step.get("mechanism", {})
+            st.markdown(f"**Mechanism Class:** `{mech_data.get('mechanism_type', 'N/A')}`")
+            for flow_step in mech_data.get("arrow_pushing_description", []):
+                st.markdown(f"• {flow_step}")
+            
+            intermediates = mech_data.get("key_intermediates", [])
+            if intermediates:
+                st.markdown("**Key Intermediates / Transition Species:**")
+                for inter in intermediates:
+                    st.markdown(f"- **{inter.get('name', 'Intermediate')}:** `{inter.get('smiles_or_desc', '')}`")
+
+            # --- Scale-Up & Process Parameters ---
             proc_params = step.get("process_parameters", {})
-            with st.expander(f"📋 Step {step_num} Process Chemistry & Scale-Up Controls", expanded=False):
+            with st.expander(f"📋 Step {step_num} Scale-Up & Critical Process Parameters (CPPs)", expanded=False):
                 p1, p2, p3 = st.columns(3)
                 p1.markdown(f"**Critical Process Parameters (CPPs):**\n\n{proc_params.get('critical_process_parameters', 'N/A')}")
                 p2.markdown(f"**Workup & Isolation:**\n\n{proc_params.get('workup_and_isolation', 'N/A')}")
                 p3.markdown(f"**Impurity Profile Risks:**\n\n{proc_params.get('impurity_profile_risks', 'N/A')}")
 
-            # Analytical & IPC Release Specifications
+            # --- Analytical & IPC Release Specifications ---
             analytical = step.get("analytical_and_ipc", {})
             if analytical:
-                with st.expander(f"🔬 Step {step_num} Analytical Release & IPC Specifications", expanded=False):
+                with st.expander(f"🔬 Step {step_num} IPC & Analytical Characterization", expanded=False):
                     ipc_points = analytical.get("ipc_checkpoints", [])
                     if ipc_points:
                         st.markdown("**In-Process Control (IPC) Checkpoints:**")
