@@ -11,63 +11,67 @@ def analyze_ros(
     file_hash: str = ""
 ) -> dict:
     """
-    Cached Route of Synthesis analyzer using Gemini 3.6 Flash.
-    '_client' and '_images' are ignored during hashing via leading underscores.
-    'file_hash' and 'text_context' serve as the deterministic cache keys.
+    Analyzes ROS with explicit bond-breaking, bond-forming, 
+    atom-mapping, and fundamental mechanism classification.
     """
     prompt = """
-    You are an expert process organic chemist and reaction mechanism specialist.
-    Analyze the provided Route of Synthesis (ROS) from the ChemDraw text and/or PDF images.
+    You are an expert organic reaction mechanism specialist.
+    Analyze the provided Route of Synthesis (ROS) and extract the step-by-step electron movement,
+    bond-breaking, and bond-forming events similar to standard organic textbook mechanism charts.
     
-    Return a strictly valid JSON object matching this schema:
+    You MUST return a strictly valid JSON object matching this schema:
     {
-      "overall_route_summary": "High-level summary of the synthetic strategy, total steps, and key transformations",
+      "overall_route_summary": "High-level summary of the synthetic strategy",
       "steps": [
         {
           "step_number": 1,
-          "reaction_name": "Official IUPAC / Named Reaction (e.g., Suzuki-Miyaura, Buchwald-Hartwig, Swern Oxidation)",
-          "reagents_solvents_conditions": "e.g., Pd(dppf)Cl2 (0.05 eq), K2CO3 (2.0 eq), 1,4-Dioxane/H2O, 80 °C, 4 h",
-          "starting_material_smiles": "Valid SMILES string",
-          "product_smiles": "Valid SMILES string",
-          "reaction_smarts": "Reactant1.Reactant2>>Product",
+          "reaction_name": "Specific Name (e.g., SN2 Nucleophilic Substitution / Suzuki Coupling / E2 Elimination)",
+          "reaction_class_type": "Substitution | Addition | Elimination | Acid-Base | Catalytic Cycle | Rearrangement",
+          "reagents_solvents_conditions": "e.g., NaCN, DMF, 60 °C, 2 h",
+          "starting_material_smiles": "Valid SMILES",
+          "product_smiles": "Valid SMILES",
+          "byproducts": ["NaBr", "H2O"],
+          "reaction_smarts": "Reactants>>Products",
+          "atom_mapped_smarts": "e.g., [CH3:4][CH:3]([CH3:5])[CH2:2][CH2:1][Br:6].[Na+:7].[C-:8]#[N:9]>>[CH3:4][CH:3]([CH3:5])[CH2:2][CH2:1][C:8]#[N:9].[Na+:7].[Br-:6]",
+          "bond_analysis": {
+            "bonds_broken": [
+              "C(1)-Br (Heterolytic cleavage / Leaving group departure)",
+              "Other broken bonds..."
+            ],
+            "bonds_formed": [
+              "C(1)-C(N) (Nucleophilic displacement / sigma bond formation)",
+              "Other formed bonds..."
+            ],
+            "nucleophile_electrophile_roles": {
+              "nucleophile": "Cyanide anion (:CN-)",
+              "electrophile": "Alkyl bromide (C-1 electrophilic carbon)",
+              "leaving_group": "Bromide ion (:Br-)"
+            }
+          },
           "mechanism": {
-            "mechanism_type": "e.g., Catalytic Cycle (Pd(0)/Pd(II)) or Polar Addition-Elimination",
+            "mechanism_type": "Concerted bimolecular substitution (SN2)",
             "arrow_pushing_description": [
-              "Step 1: Description of electron movement / oxidative addition",
-              "Step 2: Base-mediated transmetallation",
-              "Step 3: Reductive elimination to furnish biaryl product"
+              "1. Nucleophilic attack: Cyanide lone pair attacks the backside of C(1).",
+              "2. Transition state: Pentacoordinate carbon with partial C-CN bond formation and partial C-Br bond cleavage.",
+              "3. Inversion of configuration & departure of bromide anion."
             ],
             "key_intermediates": [
-              {"name": "Intermediate Name", "smiles_or_desc": "Structure or description"}
+              {"name": "SN2 Transition State", "smiles_or_desc": "[NC---C(1)---Br]‡"}
             ]
           },
           "process_parameters": {
-            "critical_process_parameters": "Temperature range, agitation rate, inert gas purging, exotherm controls",
-            "workup_and_isolation": "Quench, phase separation, solvent swap, crystallization solvent system",
-            "impurity_profile_risks": "Regioisomers, dimeric impurities, residual catalyst metals"
+            "critical_process_parameters": "Exotherm control, dipole-aprotic solvent selectivity",
+            "workup_and_isolation": "Aqueous wash, organic extraction, distillation",
+            "impurity_profile_risks": "E2 elimination byproducts, isonitrile regioisomers"
           },
           "analytical_and_ipc": {
             "ipc_checkpoints": [
-              {
-                "stage": "Reaction Completion",
-                "technique": "HPLC (UV 254 nm)",
-                "acceptance_criteria": "Starting Material <= 0.5% a/a, Conversion >= 98.0%"
-              },
-              {
-                "stage": "Aqueous Phase Extraction",
-                "technique": "TLC / HPLC",
-                "acceptance_criteria": "Product in aqueous layer <= 0.2%"
-              },
-              {
-                "stage": "Isolated Wet Cake",
-                "technique": "Karl Fischer / LOD",
-                "acceptance_criteria": "Water content <= 0.5% w/w, LOD <= 1.0%"
-              }
+              {"stage": "Reaction Completion", "technique": "GC / HPLC", "acceptance_criteria": "SM <= 0.5%"}
             ],
             "characterization": {
-              "hplc_assay_desc": "C18 (150 x 4.6 mm, 3.5 um), MeCN / 0.1% H3PO4 (Gradient 10-90% over 15 min), Purity >= 98.5%",
-              "nmr_diagnostic_peaks": "1H NMR (400 MHz, CDCl3): key diagnostic chemical shifts and coupling constants",
-              "mass_spec_target": "ESI-MS [M+H]+ target mass"
+              "hplc_assay_desc": "Reverse Phase C18, 254 nm",
+              "nmr_diagnostic_peaks": "1H NMR: C(1)-H shifted from 3.4 ppm (alkyl-Br) to 2.3 ppm (alkyl-CN)",
+              "mass_spec_target": "MS [M+H]+"
             }
           }
         }
