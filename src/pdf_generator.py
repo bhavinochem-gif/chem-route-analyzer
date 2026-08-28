@@ -11,7 +11,7 @@ from reportlab.platypus import (
 )
 from reportlab.pdfgen import canvas
 
-from src.chem_renderer import render_reaction_scheme, render_molecule_smiles
+from src.chem_renderer import render_reaction_scheme, generate_mechanism_flowchart_image
 
 THEMES = {
     "Pharma Blue (Default)": {
@@ -19,14 +19,9 @@ THEMES = {
         "secondary": colors.HexColor("#2563EB"),
         "accent_bg": colors.HexColor("#EFF6FF"),
         "accent_border": colors.HexColor("#BFDBFE"),
-        "mech_bg": colors.HexColor("#FAF5FF"),
-        "mech_border": colors.HexColor("#E9D5FF"),
-        "ipc_header_bg": colors.HexColor("#1E3A8A"),
-        "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#0F172A"),
         "text_muted": colors.HexColor("#64748B"),
         "table_bg": colors.HexColor("#F8FAFC"),
-        "table_alt_bg": colors.HexColor("#F1F5F9"),
         "table_border": colors.HexColor("#CBD5E1"),
         "rule_color": colors.HexColor("#CBD5E1")
     },
@@ -35,14 +30,9 @@ THEMES = {
         "secondary": colors.HexColor("#059669"),
         "accent_bg": colors.HexColor("#ECFDF5"),
         "accent_border": colors.HexColor("#A7F3D0"),
-        "mech_bg": colors.HexColor("#F0FDF4"),
-        "mech_border": colors.HexColor("#BBF7D0"),
-        "ipc_header_bg": colors.HexColor("#065F46"),
-        "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#064E3B"),
         "text_muted": colors.HexColor("#4B5563"),
         "table_bg": colors.HexColor("#F9FAFB"),
-        "table_alt_bg": colors.HexColor("#F3F4F6"),
         "table_border": colors.HexColor("#D1D5DB"),
         "rule_color": colors.HexColor("#D1D5DB")
     },
@@ -51,14 +41,9 @@ THEMES = {
         "secondary": colors.HexColor("#BE123C"),
         "accent_bg": colors.HexColor("#FFF1F2"),
         "accent_border": colors.HexColor("#FECDD3"),
-        "mech_bg": colors.HexColor("#FFFBEB"),
-        "mech_border": colors.HexColor("#FDE68A"),
-        "ipc_header_bg": colors.HexColor("#881337"),
-        "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#4C0519"),
         "text_muted": colors.HexColor("#71717A"),
         "table_bg": colors.HexColor("#FAFAFA"),
-        "table_alt_bg": colors.HexColor("#F4F4F5"),
         "table_border": colors.HexColor("#E4E4E7"),
         "rule_color": colors.HexColor("#E4E4E7")
     }
@@ -90,25 +75,23 @@ class BrandedNumberedCanvas(canvas.Canvas):
         
         self.drawString(54, letter[1] - 36, self.org_name.upper())
         self.setFont("Helvetica", 8)
-        self.drawRightString(letter[0] - 54, letter[1] - 36, "Reaction Mechanism & Synthesis Dossier")
+        self.drawRightString(letter[0] - 54, letter[1] - 36, "Synthesis Route & Reaction Mechanism Pathway")
         
         self.setStrokeColor(self.theme["rule_color"])
         self.setLineWidth(0.5)
         self.line(54, letter[1] - 42, letter[0] - 54, letter[1] - 42)
         
         self.line(54, 45, letter[0] - 54, 45)
-        self.drawString(54, 32, "CONFIDENTIAL — PROCESS R&D & MECHANISM ELUCIDATION")
+        self.drawString(54, 32, "CONFIDENTIAL — PROCESS CHEMISTRY & MECHANISM ELUCIDATION")
         self.drawRightString(letter[0] - 54, 32, f"Page {self._pageNumber} of {page_count}")
         self.restoreState()
 
 def build_report_styles(theme):
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="DocTitle", fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=theme["primary"]))
+    styles.add(ParagraphStyle(name="DocTitle", fontName="Helvetica-Bold", fontSize=17, leading=21, textColor=theme["primary"]))
     styles.add(ParagraphStyle(name="SectionHeader", fontName="Helvetica-Bold", fontSize=10.5, leading=13, textColor=theme["primary"], spaceBefore=4, spaceAfter=2))
-    styles.add(ParagraphStyle(name="SubSectionHeader", fontName="Helvetica-Bold", fontSize=9.5, leading=12, textColor=theme["secondary"], spaceBefore=4, spaceAfter=2))
-    styles.add(ParagraphStyle(name="StepTitle", fontName="Helvetica-Bold", fontSize=12, leading=16, textColor=theme["secondary"], spaceBefore=6, spaceAfter=4))
-    styles.add(ParagraphStyle(name="BodyTextDark", fontName="Helvetica", fontSize=8, leading=10.5, textColor=theme["text_dark"]))
-    styles.add(ParagraphStyle(name="IPCTableHeader", fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=theme["ipc_header_text"]))
+    styles.add(ParagraphStyle(name="StepTitle", fontName="Helvetica-Bold", fontSize=12, leading=15, textColor=theme["secondary"], spaceBefore=6, spaceAfter=3))
+    styles.add(ParagraphStyle(name="BodyTextDark", fontName="Helvetica", fontSize=8, leading=11, textColor=theme["text_dark"]))
     styles.add(ParagraphStyle(name="MetaLabel", fontName="Helvetica-Bold", fontSize=7.5, leading=9.5, textColor=theme["text_muted"]))
     styles.add(ParagraphStyle(name="MetaValue", fontName="Helvetica", fontSize=8, leading=10, textColor=theme["text_dark"]))
     return styles
@@ -139,9 +122,9 @@ def build_pdf_report(
     # Title Block
     title_paragraphs = [
         Paragraph(f"<b>{org_name}</b>", styles["MetaLabel"]),
-        Paragraph("Synthesis Route & Detailed Reaction Mechanism Dossier", styles["DocTitle"]),
+        Paragraph("Synthesis Route & Mechanism Pathway Dossier", styles["DocTitle"]),
         Spacer(1, 3),
-        Paragraph(f"<b>Source File:</b> {file_name} &nbsp;|&nbsp; <b>Date:</b> {datetime.now().strftime('%Y-%m-%d')} &nbsp;|&nbsp; <b>Steps:</b> {len(route_data.get('steps', []))}", styles["MetaValue"])
+        Paragraph(f"<b>Source:</b> {file_name} &nbsp;|&nbsp; <b>Date:</b> {datetime.now().strftime('%Y-%m-%d')} &nbsp;|&nbsp; <b>Steps:</b> {len(route_data.get('steps', []))}", styles["MetaValue"])
     ]
 
     if logo_bytes:
@@ -165,10 +148,10 @@ def build_pdf_report(
     else:
         story.extend(title_paragraphs)
 
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 5))
     story.append(HRFlowable(width="100%", thickness=1, color=theme["primary"], spaceAfter=8))
 
-    # Overall Route Strategy
+    # Overall Strategy Box
     overview_text = route_data.get("overall_route_summary", "No summary available.")
     overview_box = Table(
         [[Paragraph("<b>Synthetic Route Strategy Overview</b>", styles["SectionHeader"])],
@@ -181,9 +164,9 @@ def build_pdf_report(
         ("PADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(overview_box)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    # Iterate Steps
+    # Step Iteration
     for step in route_data.get("steps", []):
         step_elements = []
         step_num = step.get("step_number", 1)
@@ -192,11 +175,11 @@ def build_pdf_report(
         
         step_elements.append(Paragraph(f"Step {step_num}: {rxn_name} ({rxn_class})", styles["StepTitle"]))
         
-        # Conditions Block
+        # (a) Conditions Block
         conditions = step.get("reagents_solvents_conditions", "N/A")
         cond_table = Table(
-            [[Paragraph("<b>Conditions & Reagents:</b>", styles["MetaLabel"]), Paragraph(conditions, styles["BodyTextDark"])]],
-            colWidths=[120, content_width - 120]
+            [[Paragraph("<b>(a) Route & Conditions:</b>", styles["MetaLabel"]), Paragraph(conditions, styles["BodyTextDark"])]],
+            colWidths=[130, content_width - 130]
         )
         cond_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), theme["table_bg"]),
@@ -205,66 +188,40 @@ def build_pdf_report(
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ]))
         step_elements.append(cond_table)
-        step_elements.append(Spacer(1, 5))
+        step_elements.append(Spacer(1, 4))
 
-        # Overall Reaction Scheme Diagram
+        # (a) Overall Scheme
         rxn_smarts = step.get("reaction_smarts", "")
         if rxn_smarts and ">" in rxn_smarts:
             rxn_buf = render_reaction_scheme(rxn_smarts)
             if rxn_buf:
-                step_elements.append(RLImage(rxn_buf, width=content_width, height=110))
+                step_elements.append(RLImage(rxn_buf, width=content_width, height=95))
                 step_elements.append(Spacer(1, 6))
 
-        # Elementary Mechanism Pathway Breakdown
+        # (b) Continuous Reaction Mechanism Pathway Canvas
         pathway = step.get("elementary_mechanism_pathway", [])
         if pathway:
-            step_elements.append(Paragraph("<b>Elementary Reaction Mechanism Pathway (Step-by-Step Cascade)</b>", styles["SubSectionHeader"]))
-            mech_rows = [
-                [
-                    Paragraph("<b>Micro-Step / Stage</b>", styles["IPCTableHeader"]),
-                    Paragraph("<b>Intermediate / Scheme</b>", styles["IPCTableHeader"]),
-                    Paragraph("<b>Reagents & Electron Movement</b>", styles["IPCTableHeader"])
-                ]
-            ]
-            for m in pathway:
-                inter_smiles = m.get("intermediate_smiles", "")
-                img_cell = Paragraph(f"<code>{inter_smiles}</code>", styles["BodyTextDark"])
-                if inter_smiles:
-                    ibuf = render_molecule_smiles(inter_smiles, width=160, height=90)
-                    if ibuf:
-                        img_cell = RLImage(ibuf, width=110, height=65)
+            mech_canvas_buf = generate_mechanism_flowchart_image(pathway, title=f"(b) Reaction Mechanism — Step {step_num} Elementary Pathway")
+            if mech_canvas_buf:
+                # Dynamic height based on row count
+                n_items = len(pathway)
+                calc_h = 135 if n_items <= 3 else 210
+                step_elements.append(RLImage(mech_canvas_buf, width=content_width, height=calc_h))
+                step_elements.append(Spacer(1, 6))
 
-                desc_text = f"<b>Reagents:</b> {m.get('reagents_in_out', 'N/A')}<br/><b>Electron Flow:</b> {m.get('arrow_pushing', '')}<br/><b>Driving Force:</b> {m.get('driving_force', '')}"
-                
-                mech_rows.append([
-                    Paragraph(f"<b>Stage {m.get('micro_step_num', '')}:</b><br/>{m.get('stage_title', '')}", styles["BodyTextDark"]),
-                    img_cell,
-                    Paragraph(desc_text, styles["BodyTextDark"])
-                ])
-
-            mech_table = Table(mech_rows, colWidths=[120, 120, content_width - 240])
-            mech_table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), theme["primary"]),
-                ("GRID", (0, 0), (-1, -1), 0.5, theme["table_border"]),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("PADDING", (0, 0), (-1, -1), 4),
-            ]))
-            step_elements.append(mech_table)
-            step_elements.append(Spacer(1, 6))
-
-        # Process Parameters Block
+        # Process Parameters & Impurity Risks Table
         proc = step.get("process_parameters", {})
         proc_data = [
-            [Paragraph("<b>Critical Process Parameters (CPPs):</b>", styles["MetaLabel"]), Paragraph(proc.get("critical_process_parameters", "N/A"), styles["BodyTextDark"])],
-            [Paragraph("<b>Workup & Isolation Procedure:</b>", styles["MetaLabel"]), Paragraph(proc.get("workup_and_isolation", "N/A"), styles["BodyTextDark"])],
+            [Paragraph("<b>Critical Process Parameters:</b>", styles["MetaLabel"]), Paragraph(proc.get("critical_process_parameters", "N/A"), styles["BodyTextDark"])],
+            [Paragraph("<b>Workup & Isolation:</b>", styles["MetaLabel"]), Paragraph(proc.get("workup_and_isolation", "N/A"), styles["BodyTextDark"])],
             [Paragraph("<b>Impurity Profile Risks:</b>", styles["MetaLabel"]), Paragraph(proc.get("impurity_profile_risks", "N/A"), styles["BodyTextDark"])]
         ]
-        proc_table = Table(proc_data, colWidths=[140, content_width - 140])
+        proc_table = Table(proc_data, colWidths=[130, content_width - 130])
         proc_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), theme["table_bg"]),
             ("GRID", (0, 0), (-1, -1), 0.5, theme["table_border"]),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("PADDING", (0, 0), (-1, -1), 3.5),
+            ("PADDING", (0, 0), (-1, -1), 3),
         ]))
         step_elements.append(proc_table)
         step_elements.append(Spacer(1, 6))
