@@ -5,17 +5,30 @@ import zipfile
 import xml.etree.ElementTree as ET
 from PIL import Image
 import pdf2image
+from rdkit import Chem
+
+PERIODIC_TABLE = {
+    "H": 1, "He": 2, "Li": 3, "Be": 4, "B": 5, "C": 6, "N": 7, "O": 8, "F": 9, "Ne": 10,
+    "Na": 11, "Mg": 12, "Al": 13, "Si": 14, "P": 15, "S": 16, "Cl": 17, "Ar": 18,
+    "K": 19, "Ca": 20, "Br": 35, "I": 53
+}
+
+BOND_ORDER_MAP = {
+    1: Chem.BondType.SINGLE,
+    2: Chem.BondType.DOUBLE,
+    3: Chem.BondType.TRIPLE,
+    4: Chem.BondType.AROMATIC
+}
+
 
 def extract_strings_from_binary(file_bytes: bytes, min_len: int = 3) -> list[str]:
-    """Extracts printable ASCII and UTF-8 strings from binary data streams."""
-    # Matches printable ASCII characters and common chemical symbols
+    """Extracts printable ASCII and UTF-8 strings from binary streams."""
     pattern = rb'[\w\s\(\)\[\]\{\}\-\+\=\#\:\@\/\.\,\>\<\\\%]{' + str(min_len).encode() + rb',}'
     raw_matches = re.findall(pattern, file_bytes)
     cleaned = []
     for match in raw_matches:
         try:
             decoded = match.decode('utf-8', errors='ignore').strip()
-            # Filter out non-informative noise strings
             if len(decoded) >= min_len and not decoded.isnumeric():
                 cleaned.append(decoded)
         except Exception:
@@ -23,112 +36,212 @@ def extract_strings_from_binary(file_bytes: bytes, min_len: int = 3) -> list[str
     return cleaned
 
 
-def extract_cdxml_data(file_bytes: bytes) -> str:
-    """Extracts text, SMILES annotations, and node labels from ChemDraw XML (.cdxml)."""
+def parse_cdxml_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
+    """
+    Decodes CDXML XML trees by extracting node/bond graphs directly 
+    into RDKit molecules and canonical SMILES.
+    """
+    extracted_smiles = []
+    text_blocks = []
+    
     try:
         root = ET.fromstring(file_bytes)
-        text_nodes = [elem.text.strip() for elem in root.iter() if elem.text and elem.text.strip()]
         
-        # Extract attribute data like formulas, IDs, or chemical names
-        node_attribs = []
+        # 1. Extract plain text annotations (reaction conditions, step numbers)
         for elem in root.iter():
-            for key in ["Formula", "ChemicalName", "Text"]:
-                val = elem.attrib.get(key)
-                if val and val.strip():
-                    node_attribs.append(f"{key}: {val.strip()}")
+            if elem.tag == "t" and elem.text and elem.text.strip():
+                text_blocks.append(elem.text.strip())
+            for s in elem.findall(".//s"):
+                if s.text and s.text.strip():
+                    text_blocks.append(s.text.strip())
+
+        # 2. Extract structural fragments as RDKit molecules
+        for fragment in root.iter("fragment"):
+            rw_mol = Chem.RWMol()
+            node_to_idx = {}
+            
+            nodes = fragment.findall("n")
+            bonds = fragment.findall("b")
+            
+            if not nodes:
+                continue
+
+            for node in nodes:
+                n_id = node.attrib.get("id")
+                elem_sym = node.attrib.get("Element", "6") # Default Carbon
+                charge = int(node.attrib.get("Charge", "0"))
+                
+                atomic_num = int(elem_sym) if elem_sym.isdigit() else PERIODIC_TABLE.get(elem_sym, 6)
+                
+                atom = Chem.Atom(atomic_num)
+                if charge != 0:
+                    atom.SetFormalCharge(charge)
                     
-        combined = text_nodes + node_attribs
-        return "\n".join(combined) if combined else "ChemDraw XML parsed (No explicit text blocks found)."
+                idx = rw_mol.AddAtom(atom)
+                node_to_idx[n_id] = idx
+
+            for bond in bonds:
+                b_node = bond.attrib.get("B")
+                e_node = bond.attrib.get("E")
+                order_raw = int(bond.attrib.get("Order", "1"))
+                
+                if b_node in node_to_idx and e_node in node_to_idx:
+                    b_type = BOND_ORDER_MAP.get(order_raw, Chem.BondType.SINGLE)
+                    rw_mol.AddBond(node_to_idx[b_node], node_to_idx[e_node], b_type)
+
+            try:
+                mol = rw_mol.GetMol()
+                Chem.SanitizeMol(mol)
+                smiles = Chem.MolToSmiles(mol)
+                if smiles:
+                    extracted_smiles.append(smiles)
+            except Exception:
+                try:
+                    mol = rw_mol.GetMol()
+                    smiles = Chem.MolToSmiles(mol)
+                    if smiles:
+                        extracted_smiles.append(smiles)
+                except Exception:
+                    pass
+
     except Exception as e:
-        # Fallback to string extraction if XML is malformed
-        extracted = extract_strings_from_binary(file_bytes)
-        return "\n".join(extracted) if extracted else f"CDXML extraction note: {e}"
+        text_blocks.append(f"[CDXML Parsing Fallback: {e}]")
+
+    return extracted_smiles, "\n".join(text_blocks)
 
 
-def extract_cdx_data(file_bytes: bytes) -> str:
-    """Parses binary ChemDraw (.cdx) files by scanning header objects, text tags, and string chunks."""
+def parse_cdx_binary_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
+    """
+    Decodes binary ChemDraw (.cdx) VjCD0100 tag streams to extract chemical nodes, 
+    atomic charges, bond orders, and textual parameters.
+    """
+    extracted_smiles = []
     extracted_text = []
-    
-    # Check for ChemDraw binary magic header: VjCD0100 (0x56 0x6a 0x43 0x44 0x30 0x31 0x30 0x30)
-    is_cdx_header = file_bytes.startswith(b'VjCD0100')
-    if is_cdx_header:
-        extracted_text.append("[Format: ChemDraw Binary CDX]")
 
-    # Scan for CDX text property tags (Tag 0x0A00 / 0x0600 / Text Objects)
-    pos = 8 if is_cdx_header else 0
+    pos = 8 if file_bytes.startswith(b'VjCD0100') else 0
     file_len = len(file_bytes)
-    
+
+    rw_mol = Chem.RWMol()
+    node_id_map = {}
+    current_node_counter = 0
+
     while pos + 4 < file_len:
         tag, val_len = struct.unpack_from("<HH", file_bytes, pos)
         pos += 4
-        
-        # Tag 0x0A00 is CDXProp_Text; Tag 0x000E is Name/Comment
-        if tag in [0x0A00, 0x000E, 0x0600] and pos + val_len <= file_len:
+
+        # Tag 0x8004 = Node Object
+        if tag == 0x8004:
+            current_node_counter += 1
+            atom = Chem.Atom(6) # Default Carbon
+            idx = rw_mol.AddAtom(atom)
+            node_id_map[current_node_counter] = idx
+
+        # Tag 0x0400 / 0x0402 = Atomic Number / Element
+        elif tag in [0x0400, 0x0402] and pos + 2 <= file_len and current_node_counter in node_id_map:
+            atomic_num = struct.unpack_from("<h", file_bytes, pos)[0]
+            if 1 <= atomic_num <= 118:
+                atom_idx = node_id_map[current_node_counter]
+                rw_mol.GetAtomWithIdx(atom_idx).SetAtomicNum(atomic_num)
+
+        # Tag 0x0421 = Formal Charge
+        elif tag == 0x0421 and pos + 2 <= file_len and current_node_counter in node_id_map:
+            charge = struct.unpack_from("<h", file_bytes, pos)[0]
+            atom_idx = node_id_map[current_node_counter]
+            rw_mol.GetAtomWithIdx(atom_idx).SetFormalCharge(charge)
+
+        # Tag 0x8005 = Bond Object
+        elif tag == 0x8005 and pos + 8 <= file_len:
+            b_id, e_id, b_order = struct.unpack_from("<HHH", file_bytes, pos)
+            if b_id in node_id_map and e_id in node_id_map:
+                b_type = BOND_ORDER_MAP.get(b_order, Chem.BondType.SINGLE)
+                try:
+                    rw_mol.AddBond(node_id_map[b_id], node_id_map[e_id], b_type)
+                except Exception:
+                    pass
+
+        # Tag 0x0A00 = Text Property
+        elif tag in [0x0A00, 0x000E, 0x0600] and pos + val_len <= file_len:
             try:
                 chunk = file_bytes[pos:pos + val_len].decode('utf-8', errors='ignore').strip()
-                if chunk and len(chunk) >= 2:
+                if len(chunk) >= 2:
                     extracted_text.append(chunk)
             except Exception:
                 pass
-            pos += val_len
-        elif val_len & 0x8000:
-            # Variable-length tag boundary
+
+        if val_len & 0x8000:
             pos += 2
         else:
             pos += val_len
 
-    # If tagged parsing is sparse, run broad binary token aggregation
-    if len(extracted_text) <= 1:
-        extracted_text.extend(extract_strings_from_binary(file_bytes, min_len=3))
+    # Extract parsed molecules
+    try:
+        mol = rw_mol.GetMol()
+        if mol.GetNumAtoms() > 0:
+            Chem.SanitizeMol(mol, catchErrors=True)
+            for frag in Chem.GetMolFrags(mol, asMols=True):
+                sm = Chem.MolToSmiles(frag)
+                if len(sm) > 1:
+                    extracted_smiles.append(sm)
+    except Exception:
+        pass
 
-    return "\n".join(extracted_text) if extracted_text else "Binary ChemDraw (.cdx) parsed."
-
-
-def extract_chemsketch_data(file_bytes: bytes, ext: str = "sk2") -> str:
-    """
-    Parses ACD/ChemSketch .sk2 and .csk files.
-    Handles ZIP-compressed XML/MOL containers as well as proprietary binary/OLE formats.
-    """
-    extracted_info = [f"[Format: ACD/ChemSketch .{ext.upper()}]"]
+    # Extract remaining textual comments/reagents
+    extracted_text.extend(extract_strings_from_binary(file_bytes, min_len=3))
     
-    # 1. Try unpacking as a ZIP container (Modern .sk2 format)
+    return extracted_smiles, "\n".join(extracted_text)
+
+
+def extract_chemsketch_data(file_bytes: bytes, ext: str = "sk2") -> tuple[list[str], str]:
+    """Extracts ChemSketch files (.sk2, .csk) with embedded Molblock extraction."""
+    extracted_smiles = []
+    text_blocks = [f"[Format: ACD/ChemSketch .{ext.upper()}]"]
+
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes), 'r') as zip_ref:
             for file_name in zip_ref.namelist():
-                if file_name.endswith(('.xml', '.txt', '.mol', '.sdf', '.json')):
-                    content = zip_ref.read(file_name).decode('utf-8', errors='ignore')
-                    extracted_info.append(f"--- File: {file_name} ---")
-                    extracted_info.append(content)
-        if len(extracted_info) > 1:
-            return "\n".join(extracted_info)
-    except (zipfile.BadZipFile, Exception):
+                content = zip_ref.read(file_name).decode('utf-8', errors='ignore')
+                if file_name.endswith(('.mol', '.sdf')):
+                    mol = Chem.MolFromMolBlock(content)
+                    if mol:
+                        extracted_smiles.append(Chem.MolToSmiles(mol))
+                elif file_name.endswith(('.xml', '.txt', '.json')):
+                    text_blocks.append(content)
+    except Exception:
         pass
 
-    # 2. Parse as Binary ChemSketch (.sk2 / .csk legacy structure)
-    # Search for embedded MOL/SDF block markers ('M  END', '$MDL', 'V2000', 'V3000')
-    if b'M  END' in file_bytes or b'V2000' in file_bytes or b'V3000' in file_bytes:
-        extracted_info.append("[Embedded Molfile / Connection Table Detected]")
-
-    # Extract all text tokens, IUPAC names, reaction conditions, and SMILES strings
-    string_tokens = extract_strings_from_binary(file_bytes, min_len=3)
-    extracted_info.extend(string_tokens)
-
-    return "\n".join(extracted_info) if len(extracted_info) > 1 else f"ChemSketch .{ext} parsed."
+    text_blocks.extend(extract_strings_from_binary(file_bytes, min_len=3))
+    return extracted_smiles, "\n".join(text_blocks)
 
 
 def extract_chemical_text(file_bytes: bytes, file_name: str) -> str:
-    """Master dispatcher that detects file format by extension and extracts route data."""
+    """
+    Master extractor dispatcher. Builds precise structured context 
+    containing exact extracted SMILES and chemical annotations.
+    """
     ext = file_name.split(".")[-1].lower()
-    
+    extracted_smiles = []
+    raw_text = ""
+
     if ext in ["cdxml", "xml"]:
-        return extract_cdxml_data(file_bytes)
+        extracted_smiles, raw_text = parse_cdxml_to_molecules(file_bytes)
     elif ext == "cdx":
-        return extract_cdx_data(file_bytes)
+        extracted_smiles, raw_text = parse_cdx_binary_to_molecules(file_bytes)
     elif ext in ["sk2", "csk"]:
-        return extract_chemsketch_data(file_bytes, ext=ext)
+        extracted_smiles, raw_text = extract_chemsketch_data(file_bytes, ext=ext)
     else:
-        # Generic fallback
-        return "\n".join(extract_strings_from_binary(file_bytes))
+        raw_text = "\n".join(extract_strings_from_binary(file_bytes))
+
+    output_lines = [f"--- FILE STRUCTURE DATA: {file_name} ---"]
+    if extracted_smiles:
+        output_lines.append("EXTRACTED MOLECULAR STRUCTURES (FROM FILE GRAPH):")
+        for i, sm in enumerate(extracted_smiles, 1):
+            output_lines.append(f"  Structure {i} Canonical SMILES: {sm}")
+    
+    if raw_text:
+        output_lines.append("\nEXTRACTED TEXT & REAGENT ANNOTATIONS:")
+        output_lines.append(raw_text)
+
+    return "\n".join(output_lines)
 
 
 def extract_pdf_pages(file_bytes: bytes, max_pages: int = 4) -> list[Image.Image]:
