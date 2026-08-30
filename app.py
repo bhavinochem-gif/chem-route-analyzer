@@ -1,3 +1,9 @@
+import os
+import sys
+
+# Ensure root directory is in sys.path for Streamlit Cloud deployment
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 import hashlib
 import json
 from datetime import datetime
@@ -18,7 +24,7 @@ from src.mechanism_engine import analyze_ros
 from src.exporter import generate_routes_excel
 from src.pdf_generator import build_pdf_report
 
-# Initialize SQLite database
+# Initialize persistent SQLite storage
 init_db()
 
 # --- Page Configuration ---
@@ -31,7 +37,7 @@ st.set_page_config(
 
 # --- Header ---
 st.title("⚗️ Chemical Route & Step-by-Step Reaction Mechanism Engine")
-st.caption("Upload Route of Synthesis (ROS) files to generate publication-style (a) Synthesis Routes and (b) Reaction Mechanism Pathway flowcharts with intermediate coordination states.")
+st.caption("Upload Route of Synthesis (ROS) files to elucidate named reactions, 2D intermediate cascades, coordination states, and electron-pushing pathways.")
 
 # --- Sidebar Configuration ---
 with st.sidebar:
@@ -228,25 +234,64 @@ if "analysis_results" in st.session_state:
             pathway = step.get("elementary_mechanism_pathway", [])
             
             if pathway:
-                # 1. Render the Continuous Pathway Image
+                # 1. Render Continuous Flowchart Image
                 flowchart_buf = generate_mechanism_flowchart_image(pathway, title=f"(b) Reaction Mechanism — Step {step_num} Elementary Pathway")
                 if flowchart_buf:
                     st.image(flowchart_buf, caption=f"Step {step_num} Elementary Mechanism Flowchart", use_container_width=True)
                 
-                # 2. Stage-by-Stage Electron-Pushing Details
-                with st.expander("🔍 View Detailed Electron Movement & Driving Force Breakdown", expanded=False):
-                    for stage in pathway:
-                        s_num = stage.get("stage_number", "")
-                        s_title = stage.get("stage_title", "")
-                        s_in = stage.get("reagents_in", "")
-                        s_out = stage.get("reagents_out", "")
-                        s_flow = stage.get("electron_pushing_desc", "")
-                        
-                        st.markdown(f"**Stage {s_num}: {s_title}**")
-                        if s_in or s_out:
-                            st.caption(f"Reagents Added: `{s_in}` | Eliminated: `{s_out}`")
-                        st.markdown(f"• {s_flow}")
-                        st.markdown("---")
+                # 2. PERMANENT DISPLAY: Detailed Electron Movement & Driving Force Breakdown
+                st.markdown("#### ⚡ Detailed Electron Movement & Mechanistic Driving Force Breakdown")
+                
+                for stage in pathway:
+                    s_num = stage.get("stage_number", "")
+                    s_title = stage.get("stage_title", "Stage")
+                    s_in = stage.get("reagents_in", "")
+                    s_out = stage.get("reagents_out", "")
+                    s_flow = stage.get("electron_pushing_desc", "")
+                    s_drive = stage.get("driving_force", "")
+
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div style="background-color: #F8FAFC; border-left: 4px solid #1E3A8A; padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
+                                <strong style="color: #1E3A8A; font-size: 1.05rem;">Stage {s_num}: {s_title}</strong>
+                                <div style="margin-top: 4px; color: #475569; font-size: 0.9rem;">
+                                    <b>Reagents Influx:</b> <code style="color: #0F172A;">{s_in or 'None'}</code> &nbsp;|&nbsp; 
+                                    <b>Species Eliminated:</b> <code style="color: #0F172A;">{s_out or 'None'}</code>
+                                </div>
+                                <div style="margin-top: 6px; color: #0F172A; font-size: 0.92rem;">
+                                    <b>Curved-Arrow Electron Movement:</b> {s_flow}
+                                </div>
+                                <div style="margin-top: 4px; color: #065F46; font-size: 0.9rem;">
+                                    <b>Thermodynamic / Kinetic Driving Force:</b> <i>{s_drive or 'Thermodynamically favored step'}</i>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+            # Bond Changes & Chelation Roles Matrix
+            st.markdown("#### ⚡ Bond Changes & Chelation Roles")
+            bond_info = step.get("bond_analysis", {})
+            b_col1, b_col2, b_col3 = st.columns(3)
+            
+            with b_col1:
+                st.markdown("**✂️ Bonds Broken:**")
+                for b in bond_info.get("bonds_broken", []):
+                    st.markdown(f"- 🔴 `{b}`")
+            with b_col2:
+                st.markdown("**🔗 Bonds Formed:**")
+                for b in bond_info.get("bonds_formed", []):
+                    st.markdown(f"- 🟢 `{b}`")
+            with b_col3:
+                roles = bond_info.get("nucleophile_electrophile_roles", {})
+                st.markdown("**🎯 Chelation & Roles:**")
+                if roles.get("catalyst_or_chelation"):
+                    st.markdown(f"- **Chelation:** `{roles.get('catalyst_or_chelation')}`")
+                if roles.get("nucleophile"):
+                    st.markdown(f"- **Nucleophile:** `{roles.get('nucleophile')}`")
+                if roles.get("electrophile"):
+                    st.markdown(f"- **Electrophile:** `{roles.get('electrophile')}`")
 
             # Scale-Up & Process Controls
             proc_params = step.get("process_parameters", {})
