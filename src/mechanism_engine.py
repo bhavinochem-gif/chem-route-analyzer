@@ -1,4 +1,5 @@
 import json
+import time
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -8,11 +9,13 @@ def analyze_ros(
     _client: genai.Client, 
     text_context: str = None, 
     _images: list = None, 
-    file_hash: str = ""
+    file_hash: str = "",
+    max_retries: int = 4
 ) -> dict:
     """
     Analyzes ROS with strict parent-scaffold preservation, Meisenheimer 
     addition-elimination tetrahedral intermediates, and RDKit-verified SMILES.
+    Includes automated retry logic for 503/429 API server overloads.
     """
     prompt = """
     You are an expert physical organic chemist specializing in reaction mechanism elucidation.
@@ -122,12 +125,24 @@ def analyze_ros(
     if _images:
         contents.extend(_images[:3])
 
-    response = _client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json"
-        )
-    )
-
-    return json.loads(response.text)
+    # Exponential Backoff Retry Loop
+    for attempt in range(max_retries):
+        try:
+            response = _client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            error_str = str(e)
+            # Catch 503 (Unavailable) and 429 (Too Many Requests/Rate Limit)
+            if "503" in error_str or "429" in error_str:
+                if attempt < max_retries - 1:
+                    sleep_time = 2 ** attempt  # Pauses for 1s, 2s, then 4s
+                    time.sleep(sleep_time)
+                    continue
+            # If it's a different error or we've run out of retries, raise it to the UI
+            raise e
