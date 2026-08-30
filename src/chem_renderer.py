@@ -4,22 +4,18 @@ import math
 from PIL import Image, ImageDraw, ImageFont
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
+from rdkit.Chem.Draw import rdMolDraw2D
 
 def parse_smiles_robust(smiles: str) -> Chem.Mol | None:
-    """
-    Multi-stage tolerant SMILES parser that handles organometallics, 
-    coordination salts (dot-separated adducts), and non-standard valences.
-    """
+    """Robust multi-stage parser for single molecules, adducts, and complexes."""
     if not smiles or not isinstance(smiles, str):
         return None
     
-    # 1. Clean whitespace and non-standard pseudo-SMILES characters
     clean_smiles = smiles.strip().replace(" ", "")
-    # Remove transition state daggers or dash notations
     clean_smiles = re.sub(r'[‡†]', '', clean_smiles)
     clean_smiles = re.sub(r'--+', '-', clean_smiles)
 
-    # 2. Standard strict parse
+    # 1. Standard RDKit parse
     mol = Chem.MolFromSmiles(clean_smiles)
     if mol:
         try:
@@ -28,12 +24,11 @@ def parse_smiles_robust(smiles: str) -> Chem.Mol | None:
         except Exception:
             return mol
 
-    # 3. Non-sanitized fallback (for coordination complexes & unusual valences)
+    # 2. Permissive non-sanitized parse (for formal charges/chelates)
     try:
         mol = Chem.MolFromSmiles(clean_smiles, sanitize=False)
         if mol:
             mol.UpdatePropertyCache(strict=False)
-            # Apply safe sanitization flags while skipping rigid property/valence errors
             Chem.SanitizeMol(
                 mol,
                 Chem.SANITIZE_FINDRADICALS |
@@ -49,18 +44,16 @@ def parse_smiles_robust(smiles: str) -> Chem.Mol | None:
     except Exception:
         pass
 
-    # 4. Dot-separated major fragment recovery (if solvent/counterion part is malformed)
+    # 3. Disconnected fragment recovery
     if "." in clean_smiles:
-        fragments = clean_smiles.split(".")
         valid_frags = []
-        for frag in fragments:
+        for frag in clean_smiles.split("."):
             fmol = Chem.MolFromSmiles(frag, sanitize=False)
             if fmol:
                 valid_frags.append(frag)
         if valid_frags:
             try:
-                recovered_smiles = ".".join(valid_frags)
-                mol = Chem.MolFromSmiles(recovered_smiles, sanitize=False)
+                mol = Chem.MolFromSmiles(".".join(valid_frags), sanitize=False)
                 if mol:
                     mol.UpdatePropertyCache(strict=False)
                     AllChem.Compute2DCoords(mol)
@@ -89,48 +82,59 @@ def render_reaction_scheme(rxn_smarts: str) -> io.BytesIO | None:
         return None
 
 
-def render_molecule_to_pil(smiles: str, width: int = 210, height: int = 150) -> Image.Image:
-    """Renders a single intermediate SMILES into a high-contrast PIL image."""
+def render_molecule_to_pil(smiles: str, ref_mol: Chem.Mol = None, width: int = 220, height: int = 160) -> Image.Image:
+    """Renders an intermediate molecule aligned with reference scaffold orientation."""
     mol = parse_smiles_robust(smiles)
     
     if mol:
         try:
-            drawer = Draw.MolDraw2DCairo(width, height)
+            # Align 2D coordinates to parent reference scaffold if available
+            if ref_mol:
+                try:
+                    AllChem.GenerateDepictionMatching2DStructure(mol, ref_mol)
+                except Exception:
+                    AllChem.Compute2DCoords(mol)
+            else:
+                AllChem.Compute2DCoords(mol)
+
+            drawer = rdMolDraw2D.MolDraw2DCairo(width, height)
             opts = drawer.drawOptions()
             opts.bondLineWidth = 2
             opts.clearBackground = True
             opts.padding = 0.08
+            opts.additionalAtomLabelPadding = 0.05
+            
             drawer.DrawMolecule(mol)
             drawer.FinishDrawing()
             return Image.open(io.BytesIO(drawer.GetDrawingText())).convert("RGBA")
         except Exception:
             pass
 
-    # Fallback: Clean chemical name/species card if molecule cannot be parsed
+    # Fallback card
     img = Image.new("RGBA", (width, height), (248, 250, 252, 255))
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle([(4, 4), (width - 5, height - 5)], radius=6, outline="#94A3B8", width=1)
     
     display_text = smiles.strip() if smiles else "Intermediate Complex"
-    if len(display_text) > 24:
-        display_text = display_text[:22] + "..."
+    if len(display_text) > 26:
+        display_text = display_text[:24] + "..."
         
     font = ImageFont.load_default()
-    draw.text((12, height // 2 - 12), f"[Complex / TS]", fill="#1E40AF", font=font)
-    draw.text((12, height // 2 + 4), display_text, fill="#334155", font=font)
+    draw.text((10, height // 2 - 12), "[Intermediate Structure]", fill="#1E40AF", font=font)
+    draw.text((10, height // 2 + 4), display_text, fill="#334155", font=font)
     return img
 
 
-def draw_horizontal_arrow(
+def draw_annotated_arrow(
     draw: ImageDraw.ImageDraw, 
     x_start: int, 
     y: int, 
-    length: int = 90, 
+    length: int = 105, 
     arrow_type: str = "forward",
     label_top: str = "", 
     label_bottom: str = ""
 ):
-    """Draws forward or equilibrium arrows with top/bottom reagent text."""
+    """Draws forward or equilibrium arrows with full, unclipped reagent strings."""
     x_end = x_start + length
     line_color = "#0F172A"
     font = ImageFont.load_default()
@@ -144,32 +148,13 @@ def draw_horizontal_arrow(
         draw.line([(x_start, y), (x_end, y)], fill=line_color, width=2)
         draw.polygon([(x_end, y), (x_end - 10, y - 5), (x_end - 7, y), (x_end - 10, y + 5)], fill=line_color)
 
-    if label_top:
-        draw.text((x_start + 4, y - 18), label_top, fill="#0F172A", font=font)
-    if label_bottom:
-        draw.text((x_start + 4, y + 6), label_bottom, fill="#475569", font=font)
-
-
-def draw_vertical_arrow(
-    draw: ImageDraw.ImageDraw, 
-    x: int, 
-    y_start: int, 
-    length: int = 70, 
-    label_left: str = "", 
-    label_right: str = ""
-):
-    """Draws downward transition arrow with reagent labels."""
-    y_end = y_start + length
-    line_color = "#0F172A"
-    font = ImageFont.load_default()
-
-    draw.line([(x, y_start), (x, y_end)], fill=line_color, width=2)
-    draw.polygon([(x, y_end), (x - 5, y_end - 10), (x, y_end - 7), (x + 5, y_end - 10)], fill=line_color)
-
-    if label_left:
-        draw.text((x - 65, y_start + (length // 2) - 8), label_left, fill="#0F172A", font=font)
-    if label_right:
-        draw.text((x + 12, y_start + (length // 2) - 8), label_right, fill="#475569", font=font)
+    # Top Label (e.g. + hydrazine hydrate)
+    if label_top and label_top.strip().lower() != "none":
+        draw.text((x_start + 2, y - 20), label_top.strip(), fill="#0F172A", font=font)
+    
+    # Bottom Label (e.g. - Cl-)
+    if label_bottom and label_bottom.strip().lower() != "none":
+        draw.text((x_start + 2, y + 8), label_bottom.strip(), fill="#475569", font=font)
 
 
 def generate_mechanism_flowchart_image(pathway_steps: list, title: str = "(b) Reaction Mechanism") -> io.BytesIO | None:
@@ -180,8 +165,8 @@ def generate_mechanism_flowchart_image(pathway_steps: list, title: str = "(b) Re
     if not pathway_steps:
         return None
 
-    mol_w, mol_h = 205, 145
-    arrow_w = 90
+    mol_w, mol_h = 220, 160
+    arrow_w = 115
     padding = 24
     header_h = 45
 
@@ -190,15 +175,19 @@ def generate_mechanism_flowchart_image(pathway_steps: list, title: str = "(b) Re
     row1_count = math.ceil(n_steps / 2) if use_two_rows else n_steps
     
     total_w = padding * 2 + (row1_count * mol_w) + ((row1_count - 1) * arrow_w) + 20
-    total_h = header_h + (mol_h + padding * 2) if not use_two_rows else header_h + (mol_h * 2 + 100 + padding * 2)
+    total_h = header_h + (mol_h + padding * 2) if not use_two_rows else header_h + (mol_h * 2 + 110 + padding * 2)
 
     canvas_img = Image.new("RGB", (int(total_w), int(total_h)), (255, 255, 255))
     draw = ImageDraw.Draw(canvas_img)
     font = ImageFont.load_default()
 
-    # Border and Header Title
+    # Border & Title Header
     draw.rectangle([(8, 8), (total_w - 8, total_h - 8)], outline="#CBD5E1", width=2)
     draw.text((padding, 16), title, fill="#0F172A", font=font)
+
+    # Reference structure for scaffold alignment
+    first_smiles = pathway_steps[0].get("intermediate_smiles") or pathway_steps[0].get("reactant_smiles", "")
+    ref_mol = parse_smiles_robust(first_smiles)
 
     curr_y = header_h + padding
 
@@ -208,32 +197,34 @@ def generate_mechanism_flowchart_image(pathway_steps: list, title: str = "(b) Re
         step_data = pathway_steps[i]
         
         smiles = step_data.get("intermediate_smiles") or step_data.get("reactant_smiles", "")
-        mol_img = render_molecule_to_pil(smiles, width=mol_w, height=mol_h)
+        mol_img = render_molecule_to_pil(smiles, ref_mol=ref_mol, width=mol_w, height=mol_h)
         canvas_img.paste(mol_img, (int(curr_x), int(curr_y)), mol_img)
 
         if i < row1_count - 1:
-            arr_x = curr_x + mol_w + 5
+            arr_x = curr_x + mol_w + 4
             arr_y = curr_y + (mol_h // 2)
             arrow_type = step_data.get("arrow_type", "forward")
             lbl_top = step_data.get("reagents_in", "")
             lbl_bot = step_data.get("reagents_out", "")
-            draw_horizontal_arrow(draw, int(arr_x), int(arr_y), length=arrow_w - 10, arrow_type=arrow_type, label_top=lbl_top, label_bottom=lbl_bot)
+            draw_annotated_arrow(draw, int(arr_x), int(arr_y), length=arrow_w - 8, arrow_type=arrow_type, label_top=lbl_top, label_bottom=lbl_bot)
 
     # --- Row 2 Flow (Serpentine) ---
     if use_two_rows:
         down_x = padding + (row1_count - 1) * (mol_w + arrow_w) + (mol_w // 2)
-        down_y_start = curr_y + mol_h + 5
+        down_y_start = curr_y + mol_h + 4
         last_r1_step = pathway_steps[row1_count - 1]
-        draw_vertical_arrow(
-            draw, 
-            int(down_x), 
-            int(down_y_start), 
-            length=60, 
-            label_left=last_r1_step.get("reagents_in", ""), 
-            label_right=last_r1_step.get("reagents_out", "")
-        )
+        
+        # Draw vertical arrow
+        y_end = down_y_start + 65
+        draw.line([(down_x, down_y_start), (down_x, y_end)], fill="#0F172A", width=2)
+        draw.polygon([(down_x, y_end), (down_x - 5, y_end - 10), (down_x, y_end - 7), (down_x + 5, y_end - 10)], fill="#0F172A")
+        
+        if last_r1_step.get("reagents_in"):
+            draw.text((down_x - 70, down_y_start + 24), last_r1_step.get("reagents_in"), fill="#0F172A", font=font)
+        if last_r1_step.get("reagents_out"):
+            draw.text((down_x + 12, down_y_start + 24), last_r1_step.get("reagents_out"), fill="#475569", font=font)
 
-        row2_y = curr_y + mol_h + 75
+        row2_y = curr_y + mol_h + 80
         row2_steps = pathway_steps[row1_count:]
         
         for j, step_data in enumerate(row2_steps):
@@ -241,22 +232,22 @@ def generate_mechanism_flowchart_image(pathway_steps: list, title: str = "(b) Re
             r2_x = padding + col_idx * (mol_w + arrow_w)
             
             smiles = step_data.get("intermediate_smiles", "")
-            mol_img = render_molecule_to_pil(smiles, width=mol_w, height=mol_h)
+            mol_img = render_molecule_to_pil(smiles, ref_mol=ref_mol, width=mol_w, height=mol_h)
             canvas_img.paste(mol_img, (int(r2_x), int(row2_y)), mol_img)
 
             if j < len(row2_steps) - 1:
                 arr_x_start = r2_x - 10
-                arr_x_end = arr_x_start - (arrow_w - 15)
+                arr_x_end = arr_x_start - (arrow_w - 12)
                 arr_y = row2_y + (mol_h // 2)
                 draw.line([(arr_x_start, arr_y), (arr_x_end, arr_y)], fill="#0F172A", width=2)
                 draw.polygon([(arr_x_end, arr_y), (arr_x_end + 10, arr_y - 5), (arr_x_end + 7, arr_y), (arr_x_end + 10, arr_y + 5)], fill="#0F172A")
                 
                 lbl_top = step_data.get("reagents_in", "")
                 lbl_bot = step_data.get("reagents_out", "")
-                if lbl_top:
-                    draw.text((arr_x_end + 4, arr_y - 18), lbl_top, fill="#0F172A", font=font)
-                if lbl_bot:
-                    draw.text((arr_x_end + 4, arr_y + 6), lbl_bot, fill="#475569", font=font)
+                if lbl_top and lbl_top.strip().lower() != "none":
+                    draw.text((arr_x_end + 4, arr_y - 20), lbl_top.strip(), fill="#0F172A", font=font)
+                if lbl_bot and lbl_bot.strip().lower() != "none":
+                    draw.text((arr_x_end + 4, arr_y + 8), lbl_bot.strip(), fill="#475569", font=font)
 
     output = io.BytesIO()
     canvas_img.save(output, format="PNG", dpi=(300, 300))
