@@ -19,9 +19,14 @@ THEMES = {
         "secondary": colors.HexColor("#2563EB"),
         "accent_bg": colors.HexColor("#EFF6FF"),
         "accent_border": colors.HexColor("#BFDBFE"),
+        "mech_bg": colors.HexColor("#FAF5FF"),
+        "mech_border": colors.HexColor("#E9D5FF"),
+        "ipc_header_bg": colors.HexColor("#1E3A8A"),
+        "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#0F172A"),
         "text_muted": colors.HexColor("#64748B"),
         "table_bg": colors.HexColor("#F8FAFC"),
+        "table_alt_bg": colors.HexColor("#F1F5F9"),
         "table_border": colors.HexColor("#CBD5E1"),
         "rule_color": colors.HexColor("#CBD5E1")
     },
@@ -30,9 +35,14 @@ THEMES = {
         "secondary": colors.HexColor("#059669"),
         "accent_bg": colors.HexColor("#ECFDF5"),
         "accent_border": colors.HexColor("#A7F3D0"),
+        "mech_bg": colors.HexColor("#F0FDF4"),
+        "mech_border": colors.HexColor("#BBF7D0"),
+        "ipc_header_bg": colors.HexColor("#065F46"),
+        "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#064E3B"),
         "text_muted": colors.HexColor("#4B5563"),
         "table_bg": colors.HexColor("#F9FAFB"),
+        "table_alt_bg": colors.HexColor("#F3F4F6"),
         "table_border": colors.HexColor("#D1D5DB"),
         "rule_color": colors.HexColor("#D1D5DB")
     },
@@ -41,9 +51,14 @@ THEMES = {
         "secondary": colors.HexColor("#BE123C"),
         "accent_bg": colors.HexColor("#FFF1F2"),
         "accent_border": colors.HexColor("#FECDD3"),
+        "mech_bg": colors.HexColor("#FFFBEB"),
+        "mech_border": colors.HexColor("#FDE68A"),
+        "ipc_header_bg": colors.HexColor("#881337"),
+        "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#4C0519"),
         "text_muted": colors.HexColor("#71717A"),
         "table_bg": colors.HexColor("#FAFAFA"),
+        "table_alt_bg": colors.HexColor("#F4F4F5"),
         "table_border": colors.HexColor("#E4E4E7"),
         "rule_color": colors.HexColor("#E4E4E7")
     }
@@ -75,7 +90,7 @@ class BrandedNumberedCanvas(canvas.Canvas):
         
         self.drawString(54, letter[1] - 36, self.org_name.upper())
         self.setFont("Helvetica", 8)
-        self.drawRightString(letter[0] - 54, letter[1] - 36, "Synthesis Route & Reaction Mechanism Pathway")
+        self.drawRightString(letter[0] - 54, letter[1] - 36, "Synthesis Route & Reaction Mechanism Pathway Dossier")
         
         self.setStrokeColor(self.theme["rule_color"])
         self.setLineWidth(0.5)
@@ -90,8 +105,10 @@ def build_report_styles(theme):
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="DocTitle", fontName="Helvetica-Bold", fontSize=17, leading=21, textColor=theme["primary"]))
     styles.add(ParagraphStyle(name="SectionHeader", fontName="Helvetica-Bold", fontSize=10.5, leading=13, textColor=theme["primary"], spaceBefore=4, spaceAfter=2))
+    styles.add(ParagraphStyle(name="SubSectionHeader", fontName="Helvetica-Bold", fontSize=9.5, leading=12, textColor=theme["secondary"], spaceBefore=4, spaceAfter=2))
     styles.add(ParagraphStyle(name="StepTitle", fontName="Helvetica-Bold", fontSize=12, leading=15, textColor=theme["secondary"], spaceBefore=6, spaceAfter=3))
     styles.add(ParagraphStyle(name="BodyTextDark", fontName="Helvetica", fontSize=8, leading=11, textColor=theme["text_dark"]))
+    styles.add(ParagraphStyle(name="TableHeader", fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=theme["ipc_header_text"]))
     styles.add(ParagraphStyle(name="MetaLabel", fontName="Helvetica-Bold", fontSize=7.5, leading=9.5, textColor=theme["text_muted"]))
     styles.add(ParagraphStyle(name="MetaValue", fontName="Helvetica", fontSize=8, leading=10, textColor=theme["text_dark"]))
     return styles
@@ -122,7 +139,7 @@ def build_pdf_report(
     # Title Block
     title_paragraphs = [
         Paragraph(f"<b>{org_name}</b>", styles["MetaLabel"]),
-        Paragraph("Synthesis Route & Mechanism Pathway Dossier", styles["DocTitle"]),
+        Paragraph("Synthesis Route & Reaction Mechanism Dossier", styles["DocTitle"]),
         Spacer(1, 3),
         Paragraph(f"<b>Source:</b> {file_name} &nbsp;|&nbsp; <b>Date:</b> {datetime.now().strftime('%Y-%m-%d')} &nbsp;|&nbsp; <b>Steps:</b> {len(route_data.get('steps', []))}", styles["MetaValue"])
     ]
@@ -166,7 +183,7 @@ def build_pdf_report(
     story.append(overview_box)
     story.append(Spacer(1, 8))
 
-    # Step Iteration
+    # Iterate Steps
     for step in route_data.get("steps", []):
         step_elements = []
         step_num = step.get("step_number", 1)
@@ -190,7 +207,7 @@ def build_pdf_report(
         step_elements.append(cond_table)
         step_elements.append(Spacer(1, 4))
 
-        # (a) Overall Scheme
+        # (a) Overall Scheme Diagram
         rxn_smarts = step.get("reaction_smarts", "")
         if rxn_smarts and ">" in rxn_smarts:
             rxn_buf = render_reaction_scheme(rxn_smarts)
@@ -203,13 +220,84 @@ def build_pdf_report(
         if pathway:
             mech_canvas_buf = generate_mechanism_flowchart_image(pathway, title=f"(b) Reaction Mechanism — Step {step_num} Elementary Pathway")
             if mech_canvas_buf:
-                # Dynamic height based on row count
                 n_items = len(pathway)
-                calc_h = 135 if n_items <= 3 else 210
+                calc_h = 135 if n_items <= 3 else 215
                 step_elements.append(RLImage(mech_canvas_buf, width=content_width, height=calc_h))
                 step_elements.append(Spacer(1, 6))
 
-        # Process Parameters & Impurity Risks Table
+            # PERMANENT Detailed Electron Movement & Driving Force Breakdown Table
+            step_elements.append(Paragraph("<b>Detailed Electron Movement & Mechanistic Driving Force Breakdown:</b>", styles["SubSectionHeader"]))
+            
+            detail_rows = [
+                [
+                    Paragraph("<b>Stage / Micro-Step</b>", styles["TableHeader"]),
+                    Paragraph("<b>Reagents Added / Eliminated</b>", styles["TableHeader"]),
+                    Paragraph("<b>Electron-Pushing & Driving Force Description</b>", styles["TableHeader"])
+                ]
+            ]
+
+            for stage in pathway:
+                s_num = stage.get("stage_number", "")
+                s_title = stage.get("stage_title", "Stage")
+                s_in = stage.get("reagents_in", "")
+                s_out = stage.get("reagents_out", "")
+                s_desc = stage.get("electron_pushing_desc", "")
+                s_drive = stage.get("driving_force", "")
+
+                reagents_cell = f"<b>In:</b> {s_in or 'None'}<br/><b>Out:</b> {s_out or 'None'}"
+                desc_cell = f"<b>Curved-Arrow Flow:</b> {s_desc}"
+                if s_drive:
+                    desc_cell += f"<br/><b>Driving Force:</b> <i>{s_drive}</i>"
+
+                detail_rows.append([
+                    Paragraph(f"<b>Stage {s_num}:</b><br/>{s_title}", styles["BodyTextDark"]),
+                    Paragraph(reagents_cell, styles["BodyTextDark"]),
+                    Paragraph(desc_cell, styles["BodyTextDark"])
+                ])
+
+            detail_table = Table(detail_rows, colWidths=[120, 110, content_width - 230])
+            ts_detail = [
+                ("BACKGROUND", (0, 0), (-1, 0), theme["primary"]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.5, theme["table_border"]),
+                ("PADDING", (0, 0), (-1, -1), 4),
+            ]
+            for idx in range(1, len(detail_rows)):
+                bg = theme["table_alt_bg"] if idx % 2 == 0 else theme["table_bg"]
+                ts_detail.append(("BACKGROUND", (0, idx), (-1, idx), bg))
+
+            detail_table.setStyle(TableStyle(ts_detail))
+            step_elements.append(detail_table)
+            step_elements.append(Spacer(1, 6))
+
+        # Bond Changes Matrix
+        bond_info = step.get("bond_analysis", {})
+        if bond_info:
+            b_broken = "<br/>• ".join(bond_info.get("bonds_broken", ["None"]))
+            b_formed = "<br/>• ".join(bond_info.get("bonds_formed", ["None"]))
+            roles = bond_info.get("nucleophile_electrophile_roles", {})
+            role_text = f"<b>Nucleophile:</b> {roles.get('nucleophile', 'N/A')}<br/><b>Electrophile:</b> {roles.get('electrophile', 'N/A')}<br/><b>Chelation:</b> {roles.get('catalyst_or_chelation', 'N/A')}"
+
+            bond_table_data = [
+                [
+                    Paragraph("<b>✂️ Bonds Cleaved:</b><br/>• " + b_broken, styles["BodyTextDark"]),
+                    Paragraph("<b>🔗 Bonds Formed:</b><br/>• " + b_formed, styles["BodyTextDark"]),
+                    Paragraph("<b>🎯 Chelation / Roles:</b><br/>" + role_text, styles["BodyTextDark"])
+                ]
+            ]
+            col3_w = content_width / 3.0
+            bond_table = Table(bond_table_data, colWidths=[col3_w, col3_w, col3_w])
+            bond_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), theme["accent_bg"]),
+                ("BOX", (0, 0), (-1, -1), 0.5, theme["accent_border"]),
+                ("GRID", (0, 0), (-1, -1), 0.5, theme["accent_border"]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("PADDING", (0, 0), (-1, -1), 4),
+            ]))
+            step_elements.append(bond_table)
+            step_elements.append(Spacer(1, 6))
+
+        # Process Parameters & Scale-Up Controls
         proc = step.get("process_parameters", {})
         proc_data = [
             [Paragraph("<b>Critical Process Parameters:</b>", styles["MetaLabel"]), Paragraph(proc.get("critical_process_parameters", "N/A"), styles["BodyTextDark"])],
