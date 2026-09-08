@@ -3,8 +3,8 @@ import re
 import struct
 import zipfile
 import xml.etree.ElementTree as ET
+import pypdfium2 as pdfium
 from PIL import Image
-import pdf2image
 from rdkit import Chem
 
 PERIODIC_TABLE = {
@@ -37,17 +37,13 @@ def extract_strings_from_binary(file_bytes: bytes, min_len: int = 3) -> list[str
 
 
 def parse_cdxml_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
-    """
-    Decodes CDXML XML trees by extracting node/bond graphs directly 
-    into RDKit molecules and canonical SMILES.
-    """
+    """Decodes CDXML XML trees by extracting node/bond graphs into RDKit molecules and canonical SMILES."""
     extracted_smiles = []
     text_blocks = []
     
     try:
         root = ET.fromstring(file_bytes)
         
-        # 1. Extract plain text annotations (reaction conditions, step numbers)
         for elem in root.iter():
             if elem.tag == "t" and elem.text and elem.text.strip():
                 text_blocks.append(elem.text.strip())
@@ -55,7 +51,6 @@ def parse_cdxml_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
                 if s.text and s.text.strip():
                     text_blocks.append(s.text.strip())
 
-        # 2. Extract structural fragments as RDKit molecules
         for fragment in root.iter("fragment"):
             rw_mol = Chem.RWMol()
             node_to_idx = {}
@@ -68,7 +63,7 @@ def parse_cdxml_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
 
             for node in nodes:
                 n_id = node.attrib.get("id")
-                elem_sym = node.attrib.get("Element", "6") # Default Carbon
+                elem_sym = node.attrib.get("Element", "6")
                 charge = int(node.attrib.get("Charge", "0"))
                 
                 atomic_num = int(elem_sym) if elem_sym.isdigit() else PERIODIC_TABLE.get(elem_sym, 6)
@@ -111,10 +106,7 @@ def parse_cdxml_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
 
 
 def parse_cdx_binary_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
-    """
-    Decodes binary ChemDraw (.cdx) VjCD0100 tag streams to extract chemical nodes, 
-    atomic charges, bond orders, and textual parameters.
-    """
+    """Decodes binary ChemDraw (.cdx) VjCD0100 tag streams to extract chemical nodes, atomic charges, bond orders, and text."""
     extracted_smiles = []
     extracted_text = []
 
@@ -129,27 +121,23 @@ def parse_cdx_binary_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
         tag, val_len = struct.unpack_from("<HH", file_bytes, pos)
         pos += 4
 
-        # Tag 0x8004 = Node Object
         if tag == 0x8004:
             current_node_counter += 1
-            atom = Chem.Atom(6) # Default Carbon
+            atom = Chem.Atom(6)
             idx = rw_mol.AddAtom(atom)
             node_id_map[current_node_counter] = idx
 
-        # Tag 0x0400 / 0x0402 = Atomic Number / Element
         elif tag in [0x0400, 0x0402] and pos + 2 <= file_len and current_node_counter in node_id_map:
             atomic_num = struct.unpack_from("<h", file_bytes, pos)[0]
             if 1 <= atomic_num <= 118:
                 atom_idx = node_id_map[current_node_counter]
                 rw_mol.GetAtomWithIdx(atom_idx).SetAtomicNum(atomic_num)
 
-        # Tag 0x0421 = Formal Charge
         elif tag == 0x0421 and pos + 2 <= file_len and current_node_counter in node_id_map:
             charge = struct.unpack_from("<h", file_bytes, pos)[0]
             atom_idx = node_id_map[current_node_counter]
             rw_mol.GetAtomWithIdx(atom_idx).SetFormalCharge(charge)
 
-        # Tag 0x8005 = Bond Object
         elif tag == 0x8005 and pos + 8 <= file_len:
             b_id, e_id, b_order = struct.unpack_from("<HHH", file_bytes, pos)
             if b_id in node_id_map and e_id in node_id_map:
@@ -159,7 +147,6 @@ def parse_cdx_binary_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
                 except Exception:
                     pass
 
-        # Tag 0x0A00 = Text Property
         elif tag in [0x0A00, 0x000E, 0x0600] and pos + val_len <= file_len:
             try:
                 chunk = file_bytes[pos:pos + val_len].decode('utf-8', errors='ignore').strip()
@@ -173,7 +160,6 @@ def parse_cdx_binary_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
         else:
             pos += val_len
 
-    # Extract parsed molecules
     try:
         mol = rw_mol.GetMol()
         if mol.GetNumAtoms() > 0:
@@ -185,7 +171,6 @@ def parse_cdx_binary_to_molecules(file_bytes: bytes) -> tuple[list[str], str]:
     except Exception:
         pass
 
-    # Extract remaining textual comments/reagents
     extracted_text.extend(extract_strings_from_binary(file_bytes, min_len=3))
     
     return extracted_smiles, "\n".join(extracted_text)
@@ -214,10 +199,7 @@ def extract_chemsketch_data(file_bytes: bytes, ext: str = "sk2") -> tuple[list[s
 
 
 def extract_chemical_text(file_bytes: bytes, file_name: str) -> str:
-    """
-    Master extractor dispatcher. Builds precise structured context 
-    containing exact extracted SMILES and chemical annotations.
-    """
+    """Master extractor dispatcher returning structured context containing exact extracted SMILES and annotations."""
     ext = file_name.split(".")[-1].lower()
     extracted_smiles = []
     raw_text = ""
@@ -245,9 +227,17 @@ def extract_chemical_text(file_bytes: bytes, file_name: str) -> str:
 
 
 def extract_pdf_pages(file_bytes: bytes, max_pages: int = 4) -> list[Image.Image]:
-    """Converts multi-page synthesis route PDFs into high-resolution images."""
+    """Renders synthesis route PDF pages into high-resolution PIL images using bundled pypdfium2 binaries."""
     try:
-        images = pdf2image.convert_from_bytes(file_bytes, dpi=200, first_page=1, last_page=max_pages)
+        pdf = pdfium.PdfDocument(file_bytes)
+        num_pages = min(len(pdf), max_pages)
+        images = []
+        
+        for i in range(num_pages):
+            page = pdf[i]
+            pil_image = page.render(scale=2.0).to_pil()
+            images.append(pil_image)
+            
         return images
     except Exception:
         return []
