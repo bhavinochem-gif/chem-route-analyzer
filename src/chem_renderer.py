@@ -3,17 +3,15 @@ import re
 import math
 from PIL import Image, ImageDraw, ImageFont
 
-# Graceful RDKit imports to prevent unhandled container startup crashes
+# Safe import to prevent unhandled container startup crashes
 try:
     from rdkit import Chem
     from rdkit.Chem import AllChem
     from rdkit.Chem import Draw
     from rdkit.Chem.Draw import rdMolDraw2D
     HAS_RDKIT_DRAW = True
-    RDKIT_DRAW_ERROR = None
-except Exception as e:
+except Exception:
     HAS_RDKIT_DRAW = False
-    RDKIT_DRAW_ERROR = str(e)
     try:
         from rdkit import Chem
         from rdkit.Chem import AllChem
@@ -21,7 +19,7 @@ except Exception as e:
         Chem = None
         AllChem = None
 
-ARROW_COLOR = "#DC2626"  # Crimson Red for electron-pushing arrows
+ARROW_COLOR = "#DC2626"
 
 
 def parse_smiles_robust(smiles: str):
