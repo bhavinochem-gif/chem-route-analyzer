@@ -1,3 +1,0 @@
-poppler-utils
-libxrender1
-libxext6
