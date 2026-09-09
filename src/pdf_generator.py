@@ -19,8 +19,6 @@ THEMES = {
         "secondary": colors.HexColor("#2563EB"),
         "accent_bg": colors.HexColor("#EFF6FF"),
         "accent_border": colors.HexColor("#BFDBFE"),
-        "mech_bg": colors.HexColor("#FAF5FF"),
-        "mech_border": colors.HexColor("#E9D5FF"),
         "ipc_header_bg": colors.HexColor("#1E3A8A"),
         "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#0F172A"),
@@ -35,8 +33,6 @@ THEMES = {
         "secondary": colors.HexColor("#059669"),
         "accent_bg": colors.HexColor("#ECFDF5"),
         "accent_border": colors.HexColor("#A7F3D0"),
-        "mech_bg": colors.HexColor("#F0FDF4"),
-        "mech_border": colors.HexColor("#BBF7D0"),
         "ipc_header_bg": colors.HexColor("#065F46"),
         "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#064E3B"),
@@ -51,8 +47,6 @@ THEMES = {
         "secondary": colors.HexColor("#BE123C"),
         "accent_bg": colors.HexColor("#FFF1F2"),
         "accent_border": colors.HexColor("#FECDD3"),
-        "mech_bg": colors.HexColor("#FFFBEB"),
-        "mech_border": colors.HexColor("#FDE68A"),
         "ipc_header_bg": colors.HexColor("#881337"),
         "ipc_header_text": colors.HexColor("#FFFFFF"),
         "text_dark": colors.HexColor("#4C0519"),
@@ -118,7 +112,8 @@ def build_pdf_report(
     file_name: str = "Synthesis Route",
     logo_bytes: bytes = None,
     org_name: str = "Process Chemistry R&D",
-    theme_name: str = "Pharma Blue (Default)"
+    theme_name: str = "Pharma Blue (Default)",
+    ros_images: list = None
 ) -> io.BytesIO:
     theme = THEMES.get(theme_name, THEMES["Pharma Blue (Default)"])
     pdf_buffer = io.BytesIO()
@@ -183,7 +178,22 @@ def build_pdf_report(
     story.append(overview_box)
     story.append(Spacer(1, 8))
 
-    # Iterate Steps
+    # Embed Primary Uploaded Route Image (Fixes Image 1 Missing Scheme)
+    if ros_images:
+        story.append(Paragraph("<b>Primary Route of Synthesis (ROS) Scheme:</b>", styles["SubSectionHeader"]))
+        ros_buf = io.BytesIO()
+        first_img = ros_images[0]
+        first_img.save(ros_buf, format="PNG")
+        ros_buf.seek(0)
+        
+        # Scale to match report width while maintaining aspect ratio
+        img_w, img_h = first_img.size
+        aspect = img_h / float(img_w)
+        render_h = min(content_width * aspect, 220)
+        story.append(RLImage(ros_buf, width=content_width, height=render_h))
+        story.append(Spacer(1, 10))
+
+    # Step Iteration
     for step in route_data.get("steps", []):
         step_elements = []
         step_num = step.get("step_number", 1)
@@ -207,15 +217,17 @@ def build_pdf_report(
         step_elements.append(cond_table)
         step_elements.append(Spacer(1, 4))
 
-        # (a) Overall Scheme Diagram
+        # (a) Overall Transformation Scheme (Guaranteed via fallback)
         rxn_smarts = step.get("reaction_smarts", "")
-        if rxn_smarts and ">" in rxn_smarts:
-            rxn_buf = render_reaction_scheme(rxn_smarts)
-            if rxn_buf:
-                step_elements.append(RLImage(rxn_buf, width=content_width, height=95))
-                step_elements.append(Spacer(1, 6))
+        sm_smiles = step.get("starting_material_smiles", "")
+        prod_smiles = step.get("product_smiles", "")
+        
+        rxn_buf = render_reaction_scheme(rxn_smarts, sm_smiles=sm_smiles, prod_smiles=prod_smiles, conditions=conditions)
+        if rxn_buf:
+            step_elements.append(RLImage(rxn_buf, width=content_width, height=105))
+            step_elements.append(Spacer(1, 6))
 
-        # (b) Continuous Reaction Mechanism Pathway Canvas
+        # (b) Continuous Reaction Mechanism Pathway Canvas (Fixes Image 2 Structure Rendering)
         pathway = step.get("elementary_mechanism_pathway", [])
         if pathway:
             mech_canvas_buf = generate_mechanism_flowchart_image(pathway, title=f"(b) Reaction Mechanism — Step {step_num} Elementary Pathway")
@@ -225,7 +237,7 @@ def build_pdf_report(
                 step_elements.append(RLImage(mech_canvas_buf, width=content_width, height=calc_h))
                 step_elements.append(Spacer(1, 6))
 
-            # PERMANENT Detailed Electron Movement & Driving Force Breakdown Table
+            # Detailed Electron Movement & Driving Force Breakdown Table
             step_elements.append(Paragraph("<b>Detailed Electron Movement & Mechanistic Driving Force Breakdown:</b>", styles["SubSectionHeader"]))
             
             detail_rows = [
