@@ -161,6 +161,7 @@ if active_file:
             pdf_images = extract_pdf_pages(file_bytes)
             if pdf_images:
                 st.image(pdf_images[0], caption="Route Scheme (Page 1)", use_container_width=True)
+                st.session_state["cached_pdf_images"] = pdf_images
 
     # Check for existing database analysis by SHA-256 fingerprint
     existing_entry = get_route_by_hash(file_hash)
@@ -202,6 +203,7 @@ if active_file:
 if "analysis_results" in st.session_state:
     results = st.session_state["analysis_results"]
     active_filename = st.session_state.get("active_file_name", "Synthesis Route")
+    cached_images = st.session_state.get("cached_pdf_images", None)
     
     st.markdown("---")
     st.header("🧪 Comprehensive Reaction Mechanism Elucidation")
@@ -211,6 +213,7 @@ if "analysis_results" in st.session_state:
         step_num = step.get("step_number", 1)
         rxn_name = step.get("reaction_name", "Unclassified Transformation")
         rxn_class = step.get("reaction_class_type", "General Transformation")
+        conditions = step.get("reagents_solvents_conditions", "N/A")
         
         with st.container():
             # Step Header
@@ -220,26 +223,27 @@ if "analysis_results" in st.session_state:
             with header_col2:
                 st.markdown(f"#### `🏷️ {rxn_class}`")
             
-            st.markdown(f"**Conditions & Solvents:** `{step.get('reagents_solvents_conditions', 'N/A')}`")
+            st.markdown(f"**Conditions & Solvents:** `{conditions}`")
             
-            # (a) Overall Scheme Diagram
+            # (a) Overall Scheme Diagram (With Automatic Component Fallback)
             rxn_smarts = step.get("reaction_smarts", "")
-            if rxn_smarts and ">" in rxn_smarts:
-                rxn_buf = render_reaction_scheme(rxn_smarts)
-                if rxn_buf:
-                    st.image(rxn_buf, caption=f"Overall Step {step_num} Transformation", use_container_width=True)
+            sm_smiles = step.get("starting_material_smiles", "")
+            prod_smiles = step.get("product_smiles", "")
+            
+            rxn_buf = render_reaction_scheme(rxn_smarts, sm_smiles=sm_smiles, prod_smiles=prod_smiles, conditions=conditions)
+            if rxn_buf:
+                st.image(rxn_buf, caption=f"Overall Step {step_num} Transformation", use_container_width=True)
 
             # (b) Visual Reaction Mechanism Pathway Canvas
             st.markdown(f"### (b) Reaction Mechanism Pathway (Step-by-Step Cascade)")
             pathway = step.get("elementary_mechanism_pathway", [])
             
             if pathway:
-                # 1. Render Continuous Flowchart Image
                 flowchart_buf = generate_mechanism_flowchart_image(pathway, title=f"(b) Reaction Mechanism — Step {step_num} Elementary Pathway")
                 if flowchart_buf:
                     st.image(flowchart_buf, caption=f"Step {step_num} Elementary Mechanism Flowchart", use_container_width=True)
                 
-                # 2. PERMANENT DISPLAY: Detailed Electron Movement & Driving Force Breakdown
+                # PERMANENT Detailed Electron Movement & Driving Force Breakdown
                 st.markdown("#### ⚡ Detailed Electron Movement & Mechanistic Driving Force Breakdown")
                 
                 for stage in pathway:
@@ -270,7 +274,7 @@ if "analysis_results" in st.session_state:
                             unsafe_allow_html=True
                         )
 
-            # Bond Changes & Chelation Roles Matrix
+            # Bond Changes Matrix
             st.markdown("#### ⚡ Bond Changes & Chelation Roles")
             bond_info = step.get("bond_analysis", {})
             b_col1, b_col2, b_col3 = st.columns(3)
@@ -293,7 +297,7 @@ if "analysis_results" in st.session_state:
                 if roles.get("electrophile"):
                     st.markdown(f"- **Electrophile:** `{roles.get('electrophile')}`")
 
-            # Scale-Up & Process Controls
+            # Scale-Up Controls
             proc_params = step.get("process_parameters", {})
             with st.expander(f"📋 Step {step_num} Scale-Up, CPPs & Impurity Risks", expanded=False):
                 p1, p2, p3 = st.columns(3)
@@ -314,7 +318,8 @@ if "analysis_results" in st.session_state:
             file_name=active_filename,
             logo_bytes=logo_data,
             org_name=org_name_input,
-            theme_name=selected_theme
+            theme_name=selected_theme,
+            ros_images=cached_images
         )
         st.download_button(
             label="📄 Download Mechanism Dossier (PDF)",
