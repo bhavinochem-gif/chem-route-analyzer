@@ -5,14 +5,14 @@ from PIL import Image, ImageDraw, ImageFont
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-# Safe import for rdMolDraw2D if available
+# Safe import for rdMolDraw2D if Cairo/X11 bindings are present
 try:
     from rdkit.Chem.Draw import rdMolDraw2D
     HAS_RDKIT_DRAW = True
 except Exception:
     HAS_RDKIT_DRAW = False
 
-ARROW_COLOR = "#DC2626"  # Crimson Red for curved electron arrows
+ARROW_COLOR = "#DC2626"  # Crimson Red for electron-pushing arrows
 
 # Standard CPK Element Color Palette
 CPK_COLORS = {
@@ -42,6 +42,7 @@ def parse_smiles_robust(smiles: str) -> Chem.Mol | None:
     clean = re.sub(r'[‡†]', '', clean)
     clean = re.sub(r'--+', '-', clean)
 
+    # 1. Standard RDKit parse
     mol = Chem.MolFromSmiles(clean)
     if mol:
         try:
@@ -50,6 +51,7 @@ def parse_smiles_robust(smiles: str) -> Chem.Mol | None:
         except Exception:
             return mol
 
+    # 2. Permissive non-sanitized parse (for coordination adducts and charged complexes)
     try:
         mol = Chem.MolFromSmiles(clean, sanitize=False)
         if mol:
@@ -66,6 +68,7 @@ def parse_smiles_robust(smiles: str) -> Chem.Mol | None:
     except Exception:
         pass
 
+    # 3. Disconnected dot-separated fragments
     if "." in clean:
         valid_frags = [f for f in clean.split(".") if Chem.MolFromSmiles(f, sanitize=False)]
         if valid_frags:
@@ -125,7 +128,7 @@ def draw_molecule_pure_pil(
 ) -> Image.Image:
     """
     Renders 2D structures directly in PIL using RDKit conformer coordinates.
-    Guarantees structural rendering without Cairo or X11 dependencies.
+    Guarantees reliable rendering even when OS graphics libraries are absent.
     """
     img = Image.new("RGBA", (width, height), (255, 255, 255, 255))
     draw = ImageDraw.Draw(img)
@@ -135,7 +138,17 @@ def draw_molecule_pure_pil(
         return img
 
     if mol.GetNumConformers() == 0:
-        AllChem.Compute2DCoords(mol)
+        try:
+            AllChem.Compute2DCoords(mol)
+        except Exception:
+            pass
+
+    if mol.GetNumConformers() == 0:
+        # Fallback card if 2D coordinates cannot be generated
+        smiles_text = Chem.MolToSmiles(mol) if mol else "Structure"
+        draw.text((10, height // 2 - 6), smiles_text[:22], fill="#334155", font=font)
+        return img
+
     conf = mol.GetConformer()
 
     xs = [conf.GetAtomPosition(i).x for i in range(mol.GetNumAtoms())]
@@ -189,7 +202,6 @@ def draw_molecule_pure_pil(
         elif b_type == Chem.BondType.AROMATIC:
             offset = 2.2
             draw.line([p1, p2], fill="#1E293B", width=2)
-            # Dashed inner resonance bond
             dash_steps = max(3, int(dist / 6))
             for s in range(dash_steps):
                 if s % 2 == 0:
@@ -199,15 +211,23 @@ def draw_molecule_pure_pil(
                     d_p2 = (p1[0] + bx * t_e + nx * offset, p1[1] + by * t_e + ny * offset)
                     draw.line([d_p1, d_p2], fill="#475569", width=1)
         else:
-            # Standard single bond
             draw.line([p1, p2], fill="#1E293B", width=2)
 
-    # 2. Draw Heteroatoms and Charges
+    # 2. Draw Heteroatoms and Charges (with safe hydrogen resolution)
     for i in range(mol.GetNumAtoms()):
         atom = mol.GetAtomWithIdx(i)
         sym = atom.GetSymbol()
         charge = atom.GetFormalCharge()
-        num_h = atom.GetTotalNumH()
+
+        # Resilient resolution of hydrogen count
+        num_h = 0
+        try:
+            num_h = atom.GetTotalNumHs()
+        except Exception:
+            try:
+                num_h = atom.GetNumExplicitHs()
+            except Exception:
+                num_h = 0
 
         if sym == "C" and charge == 0:
             continue
@@ -230,7 +250,6 @@ def draw_molecule_pure_pil(
         pt = atom_coords[i]
         c_color = CPK_COLORS.get(sym, "#0F172A")
 
-        # White pill background to mask underlying bond lines
         bbox = draw.textbbox((pt[0], pt[1]), lbl, font=font, anchor="mm")
         draw.rectangle([(bbox[0] - 2, bbox[1] - 1), (bbox[2] + 2, bbox[3] + 1)], fill=(255, 255, 255, 240))
         draw.text(pt, lbl, fill=c_color, font=font, anchor="mm")
@@ -291,10 +310,9 @@ def render_molecule_with_mechanistic_arrows(
     width: int = 240, 
     height: int = 170
 ) -> Image.Image:
-    """Primary renderer attempting rdMolDraw2D, falling back safely to draw_molecule_pure_pil."""
+    """Primary renderer trying rdMolDraw2D first, falling back to draw_molecule_pure_pil."""
     mol = parse_smiles_robust(smiles)
     if not mol:
-        # Fallback card only if SMILES is fundamentally unparseable
         img = Image.new("RGBA", (width, height), (248, 250, 252, 255))
         draw = ImageDraw.Draw(img)
         draw.rounded_rectangle([(4, 4), (width - 5, height - 5)], radius=6, outline="#CBD5E1", width=1)
@@ -322,12 +340,14 @@ def render_molecule_with_mechanistic_arrows(
             drawer.FinishDrawing()
 
             base_img = Image.open(io.BytesIO(drawer.GetDrawingText())).convert("RGBA")
-            
-            # If arrows are present, draw them directly onto the image
+
             if arrows:
                 draw = ImageDraw.Draw(base_img)
                 conf = mol.GetConformer()
-                atom_coords = {i: (drawer.GetDrawCoords(conf.GetAtomPosition(i)).x, drawer.GetDrawCoords(conf.GetAtomPosition(i)).y) for i in range(mol.GetNumAtoms())}
+                atom_coords = {
+                    i: (drawer.GetDrawCoords(conf.GetAtomPosition(i)).x, drawer.GetDrawCoords(conf.GetAtomPosition(i)).y)
+                    for i in range(mol.GetNumAtoms())
+                }
                 for arr in arrows:
                     s_indices = arr.get("source_indices", [])
                     t_indices = arr.get("target_indices", [])
@@ -348,7 +368,6 @@ def render_molecule_with_mechanistic_arrows(
         except Exception:
             pass
 
-    # Pure PIL renderer (works anywhere without C-graphics libraries)
     return draw_molecule_pure_pil(mol, width=width, height=height, arrows=arrows)
 
 
@@ -359,7 +378,6 @@ def render_reaction_scheme(
     conditions: str = ""
 ) -> io.BytesIO | None:
     """Renders high-level transformation schemes, falling back to a stitched reactant -> product diagram."""
-    # 1. Attempt standard RDKit Reaction drawing
     if HAS_RDKIT_DRAW and rxn_smarts and ">" in rxn_smarts:
         try:
             rxn = AllChem.ReactionFromSmarts(rxn_smarts, useSmiles=True)
@@ -375,7 +393,6 @@ def render_reaction_scheme(
         except Exception:
             pass
 
-    # 2. Resilient Fallback: Render Reactants + Arrow + Products directly via PIL
     try:
         left_smiles = sm_smiles
         right_smiles = prod_smiles
@@ -395,7 +412,6 @@ def render_reaction_scheme(
         draw = ImageDraw.Draw(scheme_canvas)
         font = ImageFont.load_default()
 
-        # Center Reaction Arrow
         arr_x1 = 315
         arr_x2 = 465
         arr_y = 95
